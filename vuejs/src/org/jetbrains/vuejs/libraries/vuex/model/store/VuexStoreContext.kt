@@ -2,7 +2,6 @@
 package org.jetbrains.vuejs.libraries.vuex.model.store
 
 import com.intellij.psi.PsiElement
-import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.util.containers.Stack
 import org.jetbrains.vuejs.libraries.vuex.codeInsight.refs.VuexSymbolAccessor
 
@@ -13,21 +12,27 @@ interface VuexStoreContext {
   val element: PsiElement
 
   fun <T : VuexNamedSymbol> visitSymbols(symbolAccessor: (VuexContainer) -> Map<String, T>,
-                                         consumer: (fullName: String, symbol: T) -> Unit) {
-    visit { namespace, container ->
+                                         consumer: (qualifiedName: String, symbol: T) -> Unit) {
+    val visited = mutableSetOf<String>()
+    visit { qualifiedName, container ->
       for (entry in symbolAccessor(container)) {
-        if ((entry.value as? VuexAction)?.isRoot == true) {
-          consumer(entry.key, entry.value)
+        val symbolName = if ((entry.value as? VuexAction)?.isRoot == true) entry.key else appendSegment(qualifiedName, entry.key)
+        if (visited.add(symbolName)) {
+          consumer(symbolName, entry.value)
         }
-        else {
-          consumer(appendSegment(namespace, entry.key), entry.value)
-        }
+      }
+      if (symbolAccessor == VuexContainer::state
+          && qualifiedName.isNotEmpty()
+          && container is VuexNamedSymbol
+          && visited.add(qualifiedName)) {
+        @Suppress("UNCHECKED_CAST")
+        consumer(qualifiedName, VuexStatePropertyImpl(container.name, container.source) as T)
       }
     }
   }
 
   fun visit(symbolAccessor: VuexSymbolAccessor?,
-            consumer: (namespace: String, symbol: Any) -> Unit) {
+            consumer: (qualifiedName: String, symbol: Any) -> Unit) {
     if (symbolAccessor == null) {
       visit(consumer)
     }
@@ -36,27 +41,23 @@ interface VuexStoreContext {
     }
   }
 
-  fun visit(consumer: (namespace: String, container: VuexContainer) -> Unit) {
+  fun visit(consumer: (qualifiedName: String, container: VuexContainer) -> Unit) {
     val containers = Stack<Pair<String, VuexContainer>>()
     rootStores.asSequence().mapTo(containers) { "" to it }
     registeredModules.asSequence().mapTo(containers) { (if (it.isNamespaced) it.name else "") to it }
 
     while (!containers.empty()) {
-      val (namespace, container) = containers.pop()
+      val (qualifiedName, container) = containers.pop()
       container.modules.values.asSequence().mapTo(containers) {
-        (if (it.isNamespaced) appendSegment(namespace, it.name) else namespace) to it
+        (if (it.isNamespaced) appendSegment(qualifiedName, it.name) else qualifiedName) to it
       }
-      // TODO properly resolve local context of the element
-      if (PsiTreeUtil.isContextAncestor(container.initializer, element, false)) {
-        consumer("", container)
-      }
-      consumer(namespace, container)
+      consumer(qualifiedName, container)
     }
   }
 
   companion object {
-    fun appendSegment(namespace: String, segment: String): String {
-      return (if (namespace.isBlank()) "" else "$namespace/") + segment
+    fun appendSegment(qualifiedName: String, segment: String): String {
+      return (if (qualifiedName.isBlank()) "" else "$qualifiedName/") + segment
     }
   }
 

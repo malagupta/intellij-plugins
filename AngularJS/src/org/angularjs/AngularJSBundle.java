@@ -8,19 +8,18 @@ import org.jetbrains.annotations.PropertyKey;
 
 import java.util.function.Supplier;
 
-public class AngularJSBundle extends DynamicBundle {
+public final class AngularJSBundle extends DynamicBundle {
   @NonNls public static final String BUNDLE = "messages.AngularJSBundle";
   private static final AngularJSBundle INSTANCE = new AngularJSBundle();
 
   private AngularJSBundle() { super(BUNDLE); }
 
-  @NotNull
-  public static String message(@NotNull @PropertyKey(resourceBundle = BUNDLE) String key, Object @NotNull ... params) {
+  public static @NotNull String message(@NotNull @PropertyKey(resourceBundle = BUNDLE) String key, Object @NotNull ... params) {
     return INSTANCE.getMessage(key, params);
   }
 
-  @NotNull
-  public static Supplier<String> lazyMessage(@NotNull @PropertyKey(resourceBundle = BUNDLE) String key, Object @NotNull ... params) {
+  public static @NotNull Supplier<String> messagePointer(@NotNull @PropertyKey(resourceBundle = BUNDLE) String key,
+                                                         Object @NotNull ... params) {
     return INSTANCE.getLazyMessage(key, params);
   }
 }

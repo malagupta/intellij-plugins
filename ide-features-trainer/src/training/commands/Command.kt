@@ -8,13 +8,13 @@ abstract class Command(val commandType: CommandType) {
 
   @Suppress("SpellCheckingInspection")
   enum class CommandType {
-    TEXT, TRY, ACTION, NOCOMMAND, MOVECARET, TYPETEXT, COPYTEXT, MOUSEBLOCK, MOUSEUNBLOCK, CARETBLOCK, CARETUNBLOCK, SHOWLINENUMBER, EXPANDALLBLOCKS, WIN, SETSELECTION
+    TEXT, TRY, ACTION, NOCOMMAND, MOVECARET, TYPETEXT, COPYTEXT, MOUSEBLOCK, MOUSEUNBLOCK, CARETBLOCK, CARETUNBLOCK, SHOWLINENUMBER, WIN, SETSELECTION
   }
 
   abstract fun execute(executionList: ExecutionList)
 
   protected fun startNextCommand(executionList: ExecutionList) {
-    CommandFactory.buildCommand(executionList.elements.peek()).execute(executionList)
+    CommandFactory.buildCommand(executionList.elements.peek(), executionList.documentationMode).execute(executionList)
   }
 
   protected fun executeWithPollOnEdt(executionList: ExecutionList, function: (Element) -> Unit) {

@@ -1,20 +1,27 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package training.ui
 
-import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.util.text.StringUtil
 import org.jdom.Content
 import org.jdom.Element
 import org.jdom.Text
 import org.jdom.output.XMLOutputter
+import training.keymap.KeymapUtil.getGotoActionText
 import training.keymap.KeymapUtil.getKeyStrokeText
 import training.keymap.KeymapUtil.getShortcutByActionId
+import java.lang.reflect.Field
 import java.util.function.Consumer
+import javax.swing.Icon
 
-class Message(val text: String, val type: MessageType) {
+class Message(val type: MessageType, private val textFn: () -> String) {
 
-  enum class MessageType { TEXT_REGULAR, TEXT_BOLD, SHORTCUT, CODE, LINK, CHECK, ICON }
+  constructor(text: String, type: MessageType): this(type, {text})
+
+  val text: String
+    get() = textFn()
+
+  enum class MessageType { TEXT_REGULAR, TEXT_BOLD, SHORTCUT, CODE, LINK, CHECK, ICON, ICON_IDX, PROPOSE_RESTORE }
 
   var startOffset = 0
   var endOffset = 0
@@ -26,6 +33,19 @@ class Message(val text: String, val type: MessageType) {
            "messageText='" + text + '\''.toString() +
            ", messageType=" + type +
            '}'
+  }
+
+  fun toIcon(): Icon? {
+    val iconName = text.substringAfterLast(".")
+    val path = text.substringBeforeLast(".")
+    val fullPath = "com.intellij.icons.${path.replace(".", "$")}"
+    val field: Field?
+    try {
+      field = Class.forName(fullPath).getField(iconName)
+    } catch (e: NoSuchFieldException) {
+      return null
+    }
+    return field?.get(null) as Icon
   }
 
   companion object {
@@ -41,11 +61,12 @@ class Message(val text: String, val type: MessageType) {
         else if (content is Element) {
           val outputter = XMLOutputter()
           var type = MessageType.TEXT_REGULAR
-          var text: String = outputter.outputString(content.content)
-          text = StringUtil.unescapeXmlEntities(text)
+          val text: String = StringUtil.unescapeXmlEntities(outputter.outputString(content.content))
+          var textFn = { text }
           var link: String? = null
           when (content.name) {
             "icon" -> type = MessageType.ICON
+            "icon_idx" -> type = MessageType.ICON_IDX
             "code" -> type = MessageType.CODE
             "shortcut" -> type = MessageType.SHORTCUT
             "strong" -> type = MessageType.TEXT_BOLD
@@ -55,21 +76,26 @@ class Message(val text: String, val type: MessageType) {
             }
             "action" -> {
               type = MessageType.SHORTCUT
-              val shortcutByActionId = getShortcutByActionId(text)
-              text = if (shortcutByActionId != null) {
-                getKeyStrokeText(shortcutByActionId)
+              link = text
+              textFn = {
+                val shortcutByActionId = getShortcutByActionId(text)
+                if (shortcutByActionId != null) {
+                  getKeyStrokeText(shortcutByActionId)
+                }
+                else {
+                  getGotoActionText(text)
+                }
               }
-              else {
-                getKeyStrokeText(getShortcutByActionId("GotoAction")) + " → " +
-                ActionManager.getInstance().getAction(text).templatePresentation.text
-              }
+            }
+            "raw_action" -> {
+              type = MessageType.SHORTCUT
             }
             "ide" -> {
               type = MessageType.TEXT_REGULAR
-              text = ApplicationNamesInfo.getInstance().fullProductName
+              textFn = { ApplicationNamesInfo.getInstance().fullProductName }
             }
           }
-          val message = Message(text, type)
+          val message = Message(type, textFn)
           message.link = link
           list.add(message)
         }

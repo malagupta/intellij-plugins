@@ -56,10 +56,6 @@ class RubyLangSupport : AbstractLangSupport() {
     RModuleUtil.getInstance().changeModuleSdk(sdk, project.module)
   }
 
-  override fun importLearnProject(): Project? {
-    TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
-  }
-
   override val defaultProjectName: String
     get() = rubyProjectName
 
@@ -88,7 +84,7 @@ class RubyLangSupport : AbstractLangSupport() {
   }
 
   override fun blockProjectFileModification(project: Project, file: VirtualFile): Boolean {
-    return file.path != "${project.basePath}${VfsUtilCore.VFS_SEPARATOR_CHAR}$sandboxFile"
+    return file.path != "${project.basePath}${VfsUtilCore.VFS_SEPARATOR_CHAR}$projectSandboxRelativePath"
   }
 
   private val Project.module: Module
@@ -98,7 +94,5 @@ class RubyLangSupport : AbstractLangSupport() {
       return modules[0]
     }
 
-  companion object {
-    const val sandboxFile = "app/sandbox.rb"
-  }
+  override val projectSandboxRelativePath = "app/sandbox.rb"
 }

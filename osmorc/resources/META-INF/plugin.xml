@@ -46,6 +46,7 @@
   <category>JVM Frameworks</category>
   <vendor>JetBrains</vendor>
 
+  <depends>com.intellij.javaee</depends>
   <depends>com.intellij.modules.java</depends>
   <depends optional="true" config-file="osgi-maven-support.xml">org.jetbrains.idea.maven</depends>
 
@@ -55,7 +56,10 @@
   </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
+    <javaee.legacy.project.wizard/>
+
     <postStartupActivity implementation="org.jetbrains.osgi.bnd.imp.ReimportPostStartupActivity"/>
+    <vfs.asyncListener implementation="org.jetbrains.osgi.bnd.imp.ReimportPostStartupActivity$FileListener"/>
 
     <projectImportProvider implementation="org.jetbrains.osgi.bnd.imp.BndProjectImportProvider"/>
     <projectImportProvider implementation="org.jetbrains.osgi.bnd.imp.BndModuleImportProvider"/>
@@ -112,7 +116,7 @@
 
     <standardResourceProvider implementation="org.jetbrains.osgi.xml.OsgiResourceProvider"/>
 
-    <compileServer.plugin classpath="osmorc-jps-plugin.jar;biz.aQute.bndlib-4.2.0.jar;biz.aQute.repository-4.2.0.jar;biz.aQute.resolve-4.2.0.jar;bundlor-all.jar"/>
+    <compileServer.plugin classpath="osmorc-jps-plugin.jar;biz.aQute.bndlib-5.0.0.jar;biz.aQute.repository-5.0.0.jar;biz.aQute.resolve-5.0.0.jar;bundlor-all.jar"/>
 
     <refactoring.elementListenerProvider implementation="org.osmorc.facet.OsmorcFacetRefactoringListenerProvider"/>
 
@@ -131,6 +135,7 @@
                     key="configurable.LibraryBundlingEditor.display.name"
                     instance="org.osmorc.settings.LibraryBundlingEditor"/>
     </applicationConfigurable>
+    <notificationAllowlist groupIds="OSGi Bnd Notifications;OSGi;OSGi Important Messages"/>
   </extensions>
 
   <extensions defaultExtensionNs="Osmorc">
@@ -150,13 +155,13 @@
   </projectListeners>
 
   <actions>
-    <action id="osgi.bnd.reimport" icon="OsmorcIdeaIcons.Bnd" text="Reimport Projects"
-            description="Reimport selected Bnd/Bndtools projects"
+    <action id="osgi.bnd.reimport" icon="OsmorcIdeaIcons.Bnd" text="Reload Projects"
+            description="Reload selected Bnd/Bndtools projects"
             class="org.jetbrains.osgi.bnd.imp.ReimportProjectsAction">
       <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
     </action>
-    <action id="osgi.bnd.reimport.all" icon="OsmorcIdeaIcons.Bnd" text="Reimport Workspace"
-            description="Reimport entire Bnd/Bndtools workspace"
+    <action id="osgi.bnd.reimport.all" icon="OsmorcIdeaIcons.Bnd" text="Reload Workspace"
+            description="Reload entire Bnd/Bndtools workspace"
             class="org.jetbrains.osgi.bnd.imp.ReimportWorkspaceAction">
       <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
     </action>

@@ -3,7 +3,6 @@ package com.jetbrains.lang.dart.analyzer;
 
 import com.google.common.collect.EvictingQueue;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.Uninterruptibles;
 import com.google.dart.server.*;
@@ -13,7 +12,6 @@ import com.google.dart.server.internal.remote.RemoteAnalysisServerImpl;
 import com.google.dart.server.internal.remote.StdioServerSocket;
 import com.google.dart.server.utilities.logging.Logging;
 import com.google.gson.JsonObject;
-import com.intellij.codeInsight.intention.IntentionManager;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationInfo;
 import com.intellij.openapi.application.ApplicationManager;
@@ -37,6 +35,7 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
@@ -52,7 +51,6 @@ import com.jetbrains.lang.dart.DartBundle;
 import com.jetbrains.lang.dart.DartFileType;
 import com.jetbrains.lang.dart.assists.DartQuickAssistIntention;
 import com.jetbrains.lang.dart.assists.DartQuickAssistIntentionListener;
-import com.jetbrains.lang.dart.assists.QuickAssistSet;
 import com.jetbrains.lang.dart.fixes.DartQuickFix;
 import com.jetbrains.lang.dart.fixes.DartQuickFixListener;
 import com.jetbrains.lang.dart.ide.actions.DartPubActionBase;
@@ -78,10 +76,14 @@ import java.util.concurrent.TimeUnit;
 
 import static com.google.dart.server.internal.remote.RemoteAnalysisServerImpl.DART_FIX_INFO_NON_NULLABLE;
 
-public class DartAnalysisServerService implements Disposable {
-
+public final class DartAnalysisServerService implements Disposable {
   public static final String MIN_SDK_VERSION = "1.12";
   private static final String MIN_MOVE_FILE_SDK_VERSION = "2.3.2";
+
+  // Webdev works going back to 2.6.0, future minimum version listed in the pubspec.yaml, link below, won't mean that 2.6.0 aren't
+  // supported.
+  // https://github.com/dart-lang/webdev/blob/master/webdev/pubspec.yaml#L11
+  public static final String MIN_WEBDEV_SDK_VERSION = "2.6.0";
 
   private static final long UPDATE_FILES_TIMEOUT = 300;
 
@@ -114,8 +116,6 @@ public class DartAnalysisServerService implements Disposable {
 
   private static final int DEBUG_LOG_CAPACITY = 30;
   private static final int MAX_DEBUG_LOG_LINE_LENGTH = 200; // Saw one line while testing that was > 50k
-
-  private static boolean ourIntentionsRegistered;
 
   @NotNull private final Project myProject;
   private boolean myInitializationOnServerStartupDone;
@@ -160,6 +160,9 @@ public class DartAnalysisServerService implements Disposable {
   @NotNull private final TObjectIntHashMap<String> myFilePathToErrorsHash = new TObjectIntHashMap<>();
 
   @NotNull private final EvictingQueue<String> myDebugLog = EvictingQueue.create(DEBUG_LOG_CAPACITY);
+
+  private boolean myDisposed;
+  private final @NotNull Condition<?> myDisposedCondition = o -> myDisposed;
 
   public static String getClientId() {
     return ApplicationNamesInfo.getInstance().getFullProductName().replace(' ', '-');
@@ -441,8 +444,12 @@ public class DartAnalysisServerService implements Disposable {
     return StringUtil.compareVersionNumbers(sdk.getVersion(), MIN_SDK_VERSION) >= 0;
   }
 
-  public static boolean isDartSdkVersionForMoveFileRefactoring(@NotNull final DartSdk sdk) {
+  public static boolean isDartSdkVersionSufficientForMoveFileRefactoring(@NotNull final DartSdk sdk) {
     return StringUtil.compareVersionNumbers(sdk.getVersion(), MIN_MOVE_FILE_SDK_VERSION) >= 0;
+  }
+
+  public static boolean isDartSdkVersionSufficientForWebdev(@NotNull final DartSdk sdk) {
+    return StringUtil.compareVersionNumbers(sdk.getVersion(), MIN_WEBDEV_SDK_VERSION) >= 0;
   }
 
   public void addCompletions(@NotNull final VirtualFile file,
@@ -513,8 +520,8 @@ public class DartAnalysisServerService implements Disposable {
     myProject = project;
     myRootsHandler = new DartServerRootsHandler(project);
     myServerData = new DartServerData(this);
-    myUpdateFilesAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, project);
-    myShowServerProgressAlarm = new Alarm(project);
+    myUpdateFilesAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, this);
+    myShowServerProgressAlarm = new Alarm(this);
     myServerErrorHandler = new DartAnalysisServerErrorHandler(project);
 
     DartClosingLabelManager.getInstance().addListener(this::handleClosingLabelPreferenceChanged, this);
@@ -712,7 +719,7 @@ public class DartAnalysisServerService implements Disposable {
       }
     };
 
-    EditorFactory.getInstance().getEventMulticaster().addDocumentListener(documentListener, myProject);
+    EditorFactory.getInstance().getEventMulticaster().addDocumentListener(documentListener, this);
   }
 
   @NotNull
@@ -732,7 +739,12 @@ public class DartAnalysisServerService implements Disposable {
 
   @Override
   public void dispose() {
+    myDisposed = true;
     stopServer();
+  }
+
+  public @NotNull Condition<?> getDisposedCondition() {
+    return myDisposedCondition;
   }
 
   private void handleClosingLabelPreferenceChanged() {
@@ -793,7 +805,7 @@ public class DartAnalysisServerService implements Disposable {
   void updateCurrentFile() {
     GuiUtils.invokeLaterIfNeeded(() -> DartProblemsView.getInstance(myProject).setCurrentFile(getCurrentOpenFile()),
                                  ModalityState.NON_MODAL,
-                                 myProject.getDisposed());
+                                 myDisposedCondition);
   }
 
   public boolean isInIncludedRoots(@Nullable final VirtualFile vFile) {
@@ -992,7 +1004,7 @@ public class DartAnalysisServerService implements Disposable {
       myFolderPathsWithErrors.clear();
     }
 
-    if (!myProject.isDisposed() && myInitializationOnServerStartupDone) {
+    if (myInitializationOnServerStartupDone) {
       DartProblemsView.getInstance(myProject).clearAll();
     }
   }
@@ -1005,7 +1017,7 @@ public class DartAnalysisServerService implements Disposable {
     }
 
     final String filePath = FileUtil.toSystemDependentName(file.getPath());
-    final List<HoverInformation> result = Lists.newArrayList();
+    final List<HoverInformation> result = new ArrayList<>();
 
     final CountDownLatch latch = new CountDownLatch(1);
     final int offset = getOriginalOffset(file, _offset);
@@ -1091,7 +1103,7 @@ public class DartAnalysisServerService implements Disposable {
     }
 
     final String filePath = FileUtil.toSystemDependentName(file.getPath());
-    final List<SourceChange> results = Lists.newArrayList();
+    final List<SourceChange> results = new ArrayList<>();
     final CountDownLatch latch = new CountDownLatch(1);
     final int offset = getOriginalOffset(file, _offset);
     final int length = getOriginalOffset(file, _offset + _length) - offset;
@@ -1361,7 +1373,7 @@ public class DartAnalysisServerService implements Disposable {
 
   @NotNull
   public List<TypeHierarchyItem> search_getTypeHierarchy(@NotNull final VirtualFile file, final int _offset, final boolean superOnly) {
-    final List<TypeHierarchyItem> results = Lists.newArrayList();
+    final List<TypeHierarchyItem> results = new ArrayList<>();
     final AnalysisServer server = myServer;
     if (server == null) {
       return results;
@@ -1739,7 +1751,7 @@ public class DartAnalysisServerService implements Disposable {
 
     server.analysis_reanalyze();
 
-    ApplicationManager.getApplication().invokeLater(this::clearAllErrors, ModalityState.NON_MODAL);
+    ApplicationManager.getApplication().invokeLater(this::clearAllErrors, ModalityState.NON_MODAL, myDisposedCondition);
   }
 
   private void analysis_setPriorityFiles() {
@@ -1827,7 +1839,7 @@ public class DartAnalysisServerService implements Disposable {
                                                           @NotNull final List<RuntimeCompletionExpression> expressions) {
     final AnalysisServer server = myServer;
     if (server == null) {
-      return new RuntimeCompletionResult(Lists.newArrayList(), Lists.newArrayList());
+      return new RuntimeCompletionResult(new ArrayList<CompletionSuggestion>(), new ArrayList<RuntimeCompletionExpression>());
     }
 
     final String contextFilePath = FileUtil.toSystemDependentName(contextFile.getPath());
@@ -2030,7 +2042,7 @@ public class DartAnalysisServerService implements Disposable {
                     problemsView.showErrorNotificationTerse(DartBundle.message("analysis.server.terminated"));
                   },
                   ModalityState.NON_MODAL,
-                  myProject.getDisposed()
+                  myDisposedCondition
                 );
 
                 stopServer();
@@ -2053,16 +2065,11 @@ public class DartAnalysisServerService implements Disposable {
             problemsView.clearNotifications();
           },
           ModalityState.NON_MODAL,
-          myProject.getDisposed()
+          myDisposedCondition
         );
 
         // This must be done after myServer is set, and should be done each time the server starts.
         registerPostfixCompletionTemplates();
-
-        if (!ourIntentionsRegistered) {
-          ourIntentionsRegistered = true;
-          registerQuickAssistIntentions();
-        }
       }
       catch (Exception e) {
         LOG.warn("Failed to start Dart analysis server", e);
@@ -2150,7 +2157,7 @@ public class DartAnalysisServerService implements Disposable {
       myRootsHandler.onServerStopped();
 
       if (myProject.isOpen() && !myProject.isDisposed()) {
-        ApplicationManager.getApplication().invokeLater(this::clearAllErrors, ModalityState.NON_MODAL, myProject.getDisposed());
+        ApplicationManager.getApplication().invokeLater(this::clearAllErrors, ModalityState.NON_MODAL, myDisposedCondition);
       }
     }
   }
@@ -2262,39 +2269,6 @@ public class DartAnalysisServerService implements Disposable {
 
   private void registerPostfixCompletionTemplates() {
     ApplicationManager.getApplication().executeOnPooledThread(() -> DartPostfixTemplateProvider.initializeTemplates(this));
-  }
-
-  /**
-   * see {@link DartQuickAssistIntention}
-   */
-  private static void registerQuickAssistIntentions() {
-    final IntentionManager intentionManager = IntentionManager.getInstance();
-    final QuickAssistSet quickAssistSet = new QuickAssistSet();
-    int i = 0;
-
-    // a little moronic way to tell IntentionManager these intentions are all different
-    //@formatter:off
-    intentionManager.addAction(new DartQuickAssistIntention(quickAssistSet, i++) {/**/});
-    intentionManager.addAction(new DartQuickAssistIntention(quickAssistSet, i++) {/**/});
-    intentionManager.addAction(new DartQuickAssistIntention(quickAssistSet, i++) {/**/});
-    intentionManager.addAction(new DartQuickAssistIntention(quickAssistSet, i++) {/**/});
-    intentionManager.addAction(new DartQuickAssistIntention(quickAssistSet, i++) {/**/});
-    intentionManager.addAction(new DartQuickAssistIntention(quickAssistSet, i++) {/**/});
-    intentionManager.addAction(new DartQuickAssistIntention(quickAssistSet, i++) {/**/});
-    intentionManager.addAction(new DartQuickAssistIntention(quickAssistSet, i++) {/**/});
-    intentionManager.addAction(new DartQuickAssistIntention(quickAssistSet, i++) {/**/});
-    intentionManager.addAction(new DartQuickAssistIntention(quickAssistSet, i++) {/**/});
-    intentionManager.addAction(new DartQuickAssistIntention(quickAssistSet, i++) {/**/});
-    intentionManager.addAction(new DartQuickAssistIntention(quickAssistSet, i++) {/**/});
-    intentionManager.addAction(new DartQuickAssistIntention(quickAssistSet, i++) {/**/});
-    intentionManager.addAction(new DartQuickAssistIntention(quickAssistSet, i++) {/**/});
-    intentionManager.addAction(new DartQuickAssistIntention(quickAssistSet, i++) {/**/});
-    intentionManager.addAction(new DartQuickAssistIntention(quickAssistSet, i++) {/**/});
-    intentionManager.addAction(new DartQuickAssistIntention(quickAssistSet, i++) {/**/});
-    intentionManager.addAction(new DartQuickAssistIntention(quickAssistSet, i++) {/**/});
-    intentionManager.addAction(new DartQuickAssistIntention(quickAssistSet, i++) {/**/});
-    intentionManager.addAction(new DartQuickAssistIntention(quickAssistSet, i++) {/**/});
-    //@formatter:on
   }
 
   public interface CompletionSuggestionConsumer {
@@ -2415,7 +2389,7 @@ public class DartAnalysisServerService implements Disposable {
 
   private void server_setSubscriptions(@Nullable AnalysisServer server) {
     if (server != null) {
-      server.server_setSubscriptions(mySubscribeToServerLog ? Lists.newArrayList(ServerService.STATUS, ServerService.LOG)
+      server.server_setSubscriptions(mySubscribeToServerLog ? Arrays.asList(ServerService.STATUS, ServerService.LOG)
                                                             : Collections.singletonList(ServerService.STATUS));
     }
   }

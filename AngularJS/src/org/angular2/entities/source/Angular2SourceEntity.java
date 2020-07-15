@@ -3,15 +3,15 @@ package org.angular2.entities.source;
 
 import com.intellij.lang.javascript.psi.JSElement;
 import com.intellij.lang.javascript.psi.ecma6.ES6Decorator;
-import com.intellij.lang.javascript.psi.ecma6.TypeScriptClass;
 import com.intellij.lang.javascript.psi.stubs.JSElementIndexingData;
 import com.intellij.lang.javascript.psi.stubs.JSImplicitElement;
-import com.intellij.psi.util.PsiTreeUtil;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Objects;
 import java.util.function.Function;
+
+import static org.angular2.Angular2DecoratorUtil.getClassForDecoratorElement;
 
 public abstract class Angular2SourceEntity extends Angular2SourceEntityBase {
 
@@ -19,20 +19,18 @@ public abstract class Angular2SourceEntity extends Angular2SourceEntityBase {
   private final JSImplicitElement myImplicitElement;
 
   public Angular2SourceEntity(@NotNull ES6Decorator decorator, @NotNull JSImplicitElement implicitElement) {
-    super(Objects.requireNonNull(PsiTreeUtil.getContextOfType(decorator, TypeScriptClass.class)));
+    super(Objects.requireNonNull(getClassForDecoratorElement(decorator)));
     myDecorator = decorator;
     myImplicitElement = implicitElement;
   }
 
-  @NotNull
   @Override
-  public JSElement getNavigableElement() {
+  public @NotNull JSElement getNavigableElement() {
     return myDecorator;
   }
 
   @Override
-  @NotNull
-  public JSElement getSourceElement() {
+  public @NotNull JSElement getSourceElement() {
     // try to find a fresh implicit element
     return StreamEx.ofNullable(myDecorator.getIndexingData())
       .map(JSElementIndexingData::getImplicitElements)
@@ -44,9 +42,8 @@ public abstract class Angular2SourceEntity extends Angular2SourceEntityBase {
       .orElse(myImplicitElement);
   }
 
-  @NotNull
   @Override
-  public ES6Decorator getDecorator() {
+  public @NotNull ES6Decorator getDecorator() {
     return myDecorator;
   }
 

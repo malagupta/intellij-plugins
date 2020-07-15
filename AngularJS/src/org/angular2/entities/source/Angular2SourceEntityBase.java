@@ -3,6 +3,7 @@ package org.angular2.entities.source;
 
 import com.intellij.lang.javascript.psi.ecma6.TypeScriptClass;
 import com.intellij.lang.javascript.psi.util.JSClassUtils;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.util.CachedValueProvider;
@@ -11,11 +12,15 @@ import org.angular2.entities.Angular2Entity;
 import org.angular2.entities.Angular2EntityUtils;
 import org.angular2.lang.Angular2Bundle;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.function.Supplier;
 
 public abstract class Angular2SourceEntityBase extends UserDataHolderBase implements Angular2Entity {
+
+  private static Object NULL_MARK = new Object();
 
   protected final TypeScriptClass myClass;
 
@@ -23,15 +28,13 @@ public abstract class Angular2SourceEntityBase extends UserDataHolderBase implem
     myClass = aClass;
   }
 
-  @NotNull
   @Override
-  public TypeScriptClass getTypeScriptClass() {
+  public @NotNull TypeScriptClass getTypeScriptClass() {
     return myClass;
   }
 
-  @NotNull
   @Override
-  public String getName() {
+  public @NotNull String getName() {
     return StringUtil.notNullize(myClass.getName(), Angular2Bundle.message("angular.description.unnamed"));
   }
 
@@ -44,8 +47,36 @@ public abstract class Angular2SourceEntityBase extends UserDataHolderBase implem
     return CachedValuesManager.getManager(myClass.getProject()).getCachedValue(this, provider);
   }
 
-  @NotNull
-  protected Collection<Object> getClassModificationDependencies() {
+  /**
+   * Since Ivy entities are cached on TypeScriptClass dependencies, we can avoid caching for values depending solely on class contents.
+   */
+  protected <T> @NotNull T getLazyValue(Key<T> key, @NotNull Supplier<@NotNull ? extends T> provider) {
+    T result = getUserData(key);
+    return result != null ? result : putUserDataIfAbsent(key, provider.get());
+  }
+
+  /**
+   * Since Ivy entities are cached on TypeScriptClass dependencies, we can avoid caching for values depending solely on class contents.
+   */
+  protected <T> @Nullable T getNullableLazyValue(Key<T> key, @NotNull Supplier<@Nullable ? extends T> provider) {
+    T result = getUserData(key);
+    if (result == NULL_MARK) {
+      return null;
+    }
+    if (result == null) {
+      result = provider.get();
+      if (result == null) {
+        //noinspection unchecked
+        putUserDataIfAbsent(key, (T)NULL_MARK);
+      }
+      else {
+        return putUserDataIfAbsent(key, result);
+      }
+    }
+    return result;
+  }
+
+  protected @NotNull Collection<Object> getClassModificationDependencies() {
     return getCachedValue(() -> {
       Collection<Object> dependencies = new HashSet<>();
       JSClassUtils.processClassesInHierarchy(myClass, true, (aClass, typeSubstitutor, fromImplements) -> {
@@ -55,5 +86,4 @@ public abstract class Angular2SourceEntityBase extends UserDataHolderBase implem
       return CachedValueProvider.Result.create(dependencies, dependencies);
     });
   }
-
 }

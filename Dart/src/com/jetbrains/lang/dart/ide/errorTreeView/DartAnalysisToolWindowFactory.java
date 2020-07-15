@@ -7,14 +7,14 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowFactory;
 import com.intellij.openapi.wm.ToolWindowManager;
-import com.intellij.openapi.wm.ex.ToolWindowEx;
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.content.ContentFactory;
 import org.jetbrains.annotations.NotNull;
 
-public class DartAnalysisToolWindowFactory implements ToolWindowFactory, DumbAware {
+import java.util.Collections;
 
+final class DartAnalysisToolWindowFactory implements ToolWindowFactory, DumbAware {
   private static final String TOOL_WINDOW_VISIBLE_PROPERTY = "dart.analysis.tool.window.visible";
 
   @Override
@@ -29,9 +29,9 @@ public class DartAnalysisToolWindowFactory implements ToolWindowFactory, DumbAwa
     toolWindow.getContentManager().addContent(content);
 
     toolWindow.setHelpId("reference.toolWindow.DartAnalysis");
-    ((ToolWindowEx)toolWindow).setTitleActions(new AnalysisServerFeedbackAction());
+    toolWindow.setTitleActions(Collections.singletonList(new AnalysisServerFeedbackAction()));
 
-    toolWindow.setAvailable(true, null);
+    toolWindow.setAvailable(true);
 
     if (PropertiesComponent.getInstance(project).getBoolean(TOOL_WINDOW_VISIBLE_PROPERTY, true)) {
       toolWindow.activate(null, false);
@@ -43,7 +43,7 @@ public class DartAnalysisToolWindowFactory implements ToolWindowFactory, DumbAwa
    * Standard tool window layout serialization in ToolWindowManager doesn't work because Dart Analysis tool window is not available by default.
    */
   public static class DartToolWindowManagerListener implements ToolWindowManagerListener {
-    @NotNull private final Project myProject;
+    private final @NotNull Project myProject;
 
     public DartToolWindowManagerListener(@NotNull Project project) {
       myProject = project;
@@ -51,7 +51,7 @@ public class DartAnalysisToolWindowFactory implements ToolWindowFactory, DumbAwa
 
     @Override
     public void stateChanged(@NotNull ToolWindowManager toolWindowManager) {
-      ToolWindow toolWindow = toolWindowManager.getToolWindow(DartProblemsView.getToolwindowId());
+      ToolWindow toolWindow = toolWindowManager.getToolWindow(DartProblemsView.TOOLWINDOW_ID);
       if (toolWindow != null) {
         PropertiesComponent.getInstance(myProject).setValue(TOOL_WINDOW_VISIBLE_PROPERTY, toolWindow.isVisible(), true);
       }

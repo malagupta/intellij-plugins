@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.javascript.flex.resolve;
 
 import com.intellij.lang.javascript.index.JavaScriptIndex;
@@ -15,7 +16,6 @@ import com.intellij.psi.impl.source.parsing.xml.XmlBuilderDriver;
 import com.intellij.util.Consumer;
 import com.intellij.util.containers.Interner;
 import com.intellij.util.containers.Stack;
-import com.intellij.util.containers.StringInterner;
 import gnu.trove.THashMap;
 import gnu.trove.TObjectLongHashMap;
 import org.jdom.Element;
@@ -27,7 +27,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 
-public class SwcCatalogXmlUtil {
+public final class SwcCatalogXmlUtil {
 
   /**
    * <code><b>Pair.first</b></code> is modification stamp of <i>catalog.xml</i> file when this user data was put<br>
@@ -48,7 +48,7 @@ public class SwcCatalogXmlUtil {
   private SwcCatalogXmlUtil() {
   }
 
-  public static class ComponentFromCatalogXml {
+  public static final class ComponentFromCatalogXml {
     public final @NotNull String myName;
     public final @NotNull String myClassFqn;
     public final @NotNull String myUri;
@@ -65,7 +65,7 @@ public class SwcCatalogXmlUtil {
     }
   }
 
-  public static class ComponentFromManifest {
+  public static final class ComponentFromManifest {
     public final @NotNull String myComponentName;
     public final @NotNull String myClassFqn;
 
@@ -265,7 +265,7 @@ public class SwcCatalogXmlUtil {
         }
       }
 
-      private final Interner<String> myStringInterner = new StringInterner();
+      private final Interner<String> myStringInterner = Interner.createStringInterner();
 
       @Override
       public void endTag(CharSequence localName, String namespace, int start, int end) {

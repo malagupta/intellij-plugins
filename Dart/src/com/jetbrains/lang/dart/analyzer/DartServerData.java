@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.lang.dart.analyzer;
 
 import com.google.common.collect.Sets;
@@ -19,6 +19,7 @@ import com.intellij.util.EventDispatcher;
 import com.intellij.util.SmartList;
 import gnu.trove.THashMap;
 import org.dartlang.analysis.server.protocol.*;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -61,7 +62,7 @@ public class DartServerData {
    * @return {@code true} if {@code errors} were processes, {@code false} if ignored;
    * errors are ignored if the file has been edited and new contents has not yet been sent to the server.
    */
-  boolean computedErrors(@NotNull final String filePath, final @NotNull List<? extends AnalysisError> errors, final boolean restartHighlighting) {
+  boolean computedErrors(@NotNull String filePath, @NotNull List<? extends AnalysisError> errors, boolean restartHighlighting) {
     if (myFilePathsWithUnsentChanges.contains(filePath)) return false;
 
     final List<DartError> newErrors = new ArrayList<>(errors.size());
@@ -130,7 +131,7 @@ public class DartServerData {
     myOutlineData.put(filePath, outline);
     ApplicationManager.getApplication().invokeLater(() -> myEventDispatcher.getMulticaster().outlineUpdated(filePath),
                                                     ModalityState.NON_MODAL,
-                                                    myService.getProject().getDisposed());
+                                                    myService.getDisposedCondition());
   }
 
   void computedAvailableSuggestions(final @NotNull List<? extends AvailableSuggestionSet> changed, final int @NotNull [] removed) {
@@ -318,13 +319,12 @@ public class DartServerData {
       ApplicationManager.getApplication()
         .invokeLater(() -> {
                        if (clearCache) {
-                         ResolveCache.getInstance(project).clearCache(true);
-                         ((PsiModificationTrackerImpl)PsiManager.getInstance(project).getModificationTracker()).incCounter();
+                         PsiManager.getInstance(project).dropPsiCaches();
                        }
                        DaemonCodeAnalyzer.getInstance(project).restart();
                      },
                      ModalityState.NON_MODAL,
-                     project.getDisposed());
+                     myService.getDisposedCondition());
     }
   }
 
@@ -512,7 +512,7 @@ public class DartServerData {
     }
   }
 
-  public static class DartHighlightRegion extends DartRegion {
+  public static final class DartHighlightRegion extends DartRegion {
     private final String type;
 
     private DartHighlightRegion(final int offset, final int length, @NotNull final String type) {
@@ -525,17 +525,21 @@ public class DartServerData {
     }
   }
 
-  public static class DartError extends DartRegion {
-    @NotNull private final String myAnalysisErrorFileSD;
+  public static final class DartError extends DartRegion {
     @NotNull private final String mySeverity;
     @Nullable private final String myCode;
     @NotNull private final String myMessage;
     @Nullable private final String myCorrection;
     @Nullable private final String myUrl;
 
+    @Contract(pure = true)
+    @NotNull
+    public DartError asEofError(int fileLength) {
+      return new DartError(fileLength > 0 ? fileLength - 1 : 0, fileLength > 0 ? 1 : 0, mySeverity, myCode, myMessage, myCorrection, myUrl);
+    }
+
     private DartError(@NotNull final AnalysisError error, final int correctedOffset, final int correctedLength) {
       super(correctedOffset, correctedLength);
-      myAnalysisErrorFileSD = error.getLocation().getFile().intern();
       mySeverity = error.getSeverity().intern();
       myCode = error.getCode() == null ? null : error.getCode().intern();
       myMessage = error.getMessage();
@@ -543,9 +547,19 @@ public class DartServerData {
       myUrl = error.getUrl();
     }
 
-    @NotNull
-    public String getAnalysisErrorFileSD() {
-      return myAnalysisErrorFileSD;
+    private DartError(int offset,
+                      int length,
+                      @NotNull String severity,
+                      @Nullable String code,
+                      @NotNull String message,
+                      @Nullable String correction,
+                      @Nullable String url) {
+      super(offset, length);
+      mySeverity = severity;
+      myCode = code;
+      myMessage = message;
+      myCorrection = correction;
+      myUrl = url;
     }
 
     @NotNull
@@ -596,7 +610,7 @@ public class DartServerData {
     }
   }
 
-  public static class DartNavigationTarget {
+  public static final class DartNavigationTarget {
     private final String myFile;
     private final int myOriginalOffset;
     private final String myKind;
@@ -625,7 +639,7 @@ public class DartServerData {
     }
   }
 
-  public static class DartOverrideMember extends DartRegion {
+  public static final class DartOverrideMember extends DartRegion {
     @Nullable private final OverriddenMember mySuperclassMember;
     @Nullable private final List<OverriddenMember> myInterfaceMembers;
 

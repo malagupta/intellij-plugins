@@ -186,16 +186,11 @@ public class GrStepDefinitionCreator implements StepDefinitionCreator {
     return (GrMethodCall)factory.createStatementFromText(snippet, step);
   }
 
-  @Override
-  public boolean validateNewStepDefinitionFileName(@NotNull final Project project, @NotNull final String fileName) {
-    return true;
-  }
-
   @NotNull
   @Override
-  public PsiDirectory getDefaultStepDefinitionFolder(@NotNull GherkinStep step) {
+  public String getDefaultStepDefinitionFolderPath(@NotNull GherkinStep step) {
     final PsiFile featureFile = step.getContainingFile();
-    return Objects.requireNonNull(featureFile.getParent());
+    return Objects.requireNonNull(featureFile.getContainingDirectory()).getVirtualFile().getPath();
   }
 
   @NotNull

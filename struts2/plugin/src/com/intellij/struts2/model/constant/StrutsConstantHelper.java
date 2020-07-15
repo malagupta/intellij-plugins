@@ -38,7 +38,7 @@ import java.util.List;
  *
  * @author Yann C&eacute;bron
  */
-public class StrutsConstantHelper {
+public final class StrutsConstantHelper {
 
   private static final Function<String, String> DOT_PATH_FUNCTION = s -> "." + s;
 
@@ -82,7 +82,7 @@ public class StrutsConstantHelper {
               return ContainerUtil.map(extensions1, DOT_PATH_FUNCTION);
             }
           };
-          return CachedValueProvider.Result.create(lazyValue, PsiModificationTracker.OUT_OF_CODE_BLOCK_MODIFICATION_COUNT);
+          return CachedValueProvider.Result.create(lazyValue, PsiModificationTracker.MODIFICATION_COUNT);
         }, false);
 
       psiFile.putUserData(KEY_ACTION_EXTENSIONS, extensions);

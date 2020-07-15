@@ -11,7 +11,8 @@ import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiManager
-import com.intellij.psi.util.CachedValueProvider
+import com.intellij.psi.util.CachedValueProvider.Result
+import com.intellij.psi.util.PsiModificationTracker
 import org.jetbrains.vuejs.codeInsight.ATTR_DIRECTIVE_PREFIX
 import org.jetbrains.vuejs.codeInsight.BOOLEAN_TYPE
 import org.jetbrains.vuejs.model.*
@@ -21,7 +22,7 @@ import org.jetbrains.vuejs.model.webtypes.json.WebTypes
 import java.util.*
 import java.util.regex.PatternSyntaxException
 
-open class VueWebTypesEntitiesContainer(project: Project, packageJson: VirtualFile,
+open class VueWebTypesEntitiesContainer(project: Project, packageJson: VirtualFile?,
                                         webTypes: WebTypes, owner: VueEntitiesContainer) : VueEntitiesContainer {
 
   override val source: PsiElement? = null
@@ -47,8 +48,9 @@ open class VueWebTypesEntitiesContainer(project: Project, packageJson: VirtualFi
         Html.DescriptionMarkup.MARKDOWN -> { doc -> JSMarkdownUtil.toHtml(doc, false) }
         else -> { doc -> "<p>" + StringUtil.escapeXmlEntities(doc).replace(EOL_PATTERN, "<br>") }
       }
-    val psiPackageJson = PsiManager.getInstance(project).findFile(packageJson)
-    val sourceSymbolResolver = WebTypesSourceSymbolResolver(psiPackageJson!!, webTypes.name ?: "unknown")
+
+    val sourceSymbolResolver = packageJson?.let { PsiManager.getInstance(project).findFile(it) }
+      ?.let { WebTypesSourceSymbolResolver(it, webTypes.name ?: "unknown") }
 
     val support = object : WebTypesContext {
       override val project: Project = project
@@ -56,28 +58,52 @@ open class VueWebTypesEntitiesContainer(project: Project, packageJson: VirtualFi
       override val parent: VueEntitiesContainer = owner
 
       override fun getType(webTypesType: Any?): JSType? = typeProvider(webTypesType)
-      override fun resolveSourceSymbol(source: Source): CachedValueProvider.Result<PsiElement?> = sourceSymbolResolver.resolve(source)
+
+      override fun resolveSourceSymbol(source: Source): Result<PsiElement?> =
+        sourceSymbolResolver?.resolve(source) ?: Result.create(null as PsiElement?, PsiModificationTracker.NEVER_CHANGED)
+
       override fun renderDescription(description: String): String? = descriptionRenderer(description)
     }
 
     components = webTypes.contributions
                    ?.html
                    ?.tags
+                   ?.asSequence()
                    ?.filter { it.name != null }
-                   ?.associateBy({ it.name!! }, { VueWebTypesComponent(it, support) })
+                   ?.flatMap { tag ->
+                     tag.aliases
+                       .asSequence()
+                       .plus(tag.name!!)
+                       .map { Pair(it, VueWebTypesComponent(tag, support)) }
+                   }
+                   ?.toMap()
                  ?: Collections.emptyMap()
     directives = webTypes.contributions
                    ?.html
                    ?.attributes
-                   ?.filter { it.name?.startsWith(ATTR_DIRECTIVE_PREFIX) ?: false }
-                   ?.associateBy({ it.name!!.substring(2) }, { VueWebTypesDirective(it, support) })
+                   ?.asSequence()
+                   ?.filter { it.name != null }
+                   ?.flatMap { attribute ->
+                     attribute.aliases
+                       .asSequence()
+                       .plus(attribute.name!!)
+                       .filter { it.startsWith(ATTR_DIRECTIVE_PREFIX) }
+                       .map { Pair(it.substring(2), VueWebTypesDirective(attribute, support)) }
+                   }
+                   ?.toMap()
                  ?: Collections.emptyMap()
     filters = webTypes.contributions
                 ?.html
                 ?.vueFilters
+                ?.asSequence()
                 ?.filter { it.name != null }
-                ?.distinctBy { it.name }
-                ?.associateBy({ it.name!! }, { VueWebTypesFilter(it, support) })
+                ?.flatMap { filter ->
+                  filter.aliases
+                    .asSequence()
+                    .plus(filter.name!!)
+                    .map { Pair(it, VueWebTypesFilter(filter, support)) }
+                }
+                ?.toMap()
               ?: Collections.emptyMap()
   }
 
@@ -110,7 +136,7 @@ open class VueWebTypesEntitiesContainer(project: Project, packageJson: VirtualFi
     val parent: VueEntitiesContainer
 
     fun getType(webTypesType: Any?): JSType?
-    fun resolveSourceSymbol(source: Source): CachedValueProvider.Result<PsiElement?>
+    fun resolveSourceSymbol(source: Source): Result<PsiElement?>
     fun renderDescription(description: String): String?
 
     fun createPattern(pattern: Any?): Regex? {

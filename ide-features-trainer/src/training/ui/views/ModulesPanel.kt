@@ -22,13 +22,13 @@ import training.lang.LangManager
 import training.learn.CourseManager
 import training.learn.LearnBundle
 import training.learn.interfaces.Module
-import training.learn.lesson.LessonStateManager
 import training.ui.LearnToolWindow
 import training.ui.UISettings
-import training.ui.UiManager
-import training.util.*
+import training.util.DataLoader
+import training.util.createAnAction
+import training.util.createBalloon
+import training.util.useNewLearningUi
 import java.awt.*
-import java.awt.event.ActionEvent
 import java.awt.event.MouseEvent
 import java.awt.event.MouseListener
 import javax.swing.*
@@ -38,9 +38,10 @@ import javax.swing.text.BadLocationException
 import javax.swing.text.SimpleAttributeSet
 import javax.swing.text.StyleConstants
 
-class ModulesPanel(val learnToolWindow: LearnToolWindow) : JPanel() {
+class ModulesPanel(private val learnToolWindow: LearnToolWindow?) : JPanel() {
 
-  private val modulesPanel: JPanel = JPanel()
+  private val modulesPanel: JPanel = if (useNewLearningUi) LearningItems() else JPanel()
+
   private val module2linklabel = BidirectionalMap<Module, LinkLabel<Any>>()
 
   init {
@@ -51,8 +52,10 @@ class ModulesPanel(val learnToolWindow: LearnToolWindow) : JPanel() {
 
     //Obligatory block
     setupFontStyles()
-    initMainPanel()
-    add(createSettingsButtonPanel())
+    initModulesPanel()
+    if (!useNewLearningUi) {
+      add(createSettingsButtonPanel())
+    }
     add(modulesPanel)
     add(Box.createVerticalGlue())
 
@@ -76,17 +79,6 @@ class ModulesPanel(val learnToolWindow: LearnToolWindow) : JPanel() {
     StyleConstants.setLineSpacing(PARAGRAPH_STYLE, 0.0f)
   }
 
-  private fun initMainPanel() {
-    modulesPanel.apply {
-      name = "modulesPanel"
-      layout = BoxLayout(this, BoxLayout.PAGE_AXIS)
-      border = UISettings.instance.eastBorder
-      isOpaque = false
-      isFocusable = false
-    }
-    initModulesPanel()
-  }
-
   private fun initModulesPanel() {
     val modules = CourseManager.instance.modules
     if (DataLoader.liveMode) {
@@ -95,33 +87,42 @@ class ModulesPanel(val learnToolWindow: LearnToolWindow) : JPanel() {
       module2linklabel.clear()
     }
 
-    if (featureTrainerMode.doesShowResetButton) {
-      addResetButton()
+    if (modulesPanel is LearningItems) {
+      modulesPanel.let {
+        it.modules = modules
+        it.updateItems()
+      }
     }
+    else {
+      modulesPanel.apply {
+        name = "modulesPanel"
+        layout = BoxLayout(this, BoxLayout.PAGE_AXIS)
+        border = UISettings.instance.eastBorder
+        isOpaque = false
+        isFocusable = false
+      }
 
-    if (featureTrainerMode == TrainingMode.DEVELOPMENT) {
-      addDevelopmentTools()
+      for (module in modules) {
+        if (module.lessons.isEmpty()) continue
+        val moduleName = createModuleNameLinkLabel(module)
+        val moduleHeader = createModuleHeader(module, moduleName, JBColor.BLACK).apply { border = UISettings.instance.checkmarkShiftBorder }
+
+        val feedbackPane = createDescriptionPane(module)
+        feedbackPane.border = UISettings.instance.checkmarkShiftBorder
+        feedbackPane.addMouseListener(delegateToLinkLabel(feedbackPane, moduleName))
+
+        modulesPanel.add(moduleHeader)
+        modulesPanel.add(Box.createVerticalStrut(UISettings.instance.headerGap))
+        modulesPanel.add(feedbackPane)
+        modulesPanel.add(Box.createVerticalStrut(UISettings.instance.moduleGap))
+      }
+
+      val feedback = LangManager.getInstance().getLangSupport()?.langCourseFeedback
+      if (feedback != null) {
+        createFeedbackPanel(feedback)
+      }
+      modulesPanel.add(Box.createVerticalGlue())
     }
-
-    for (module in modules) {
-      if (module.lessons.isEmpty()) continue
-      val moduleName = createModuleNameLinkLabel(module)
-      val moduleHeader = createModuleHeader(module, moduleName, JBColor.BLACK).apply { border = UISettings.instance.checkmarkShiftBorder }
-
-      val feedbackPane = createDescriptionPane(module)
-      feedbackPane.border = UISettings.instance.checkmarkShiftBorder
-      feedbackPane.addMouseListener(delegateToLinkLabel(feedbackPane, moduleName))
-
-      modulesPanel.add(moduleHeader)
-      modulesPanel.add(Box.createVerticalStrut(UISettings.instance.headerGap))
-      modulesPanel.add(feedbackPane)
-      modulesPanel.add(Box.createVerticalStrut(UISettings.instance.moduleGap))
-    }
-    val feedback = LangManager.getInstance().getLangSupport()?.langCourseFeedback
-    if (feedback != null) {
-      createFeedbackPanel(feedback)
-    }
-    modulesPanel.add(Box.createVerticalGlue())
   }
 
   private fun createFeedbackPanel(description: String) {
@@ -134,6 +135,7 @@ class ModulesPanel(val learnToolWindow: LearnToolWindow) : JPanel() {
     htmlEditorKit.styleSheet.addRule("a { color: #${ColorUtil.toHex(JBUI.CurrentTheme.Link.linkPressedColor())};}")
     descriptionPane.editorKit = htmlEditorKit
     descriptionPane.addHyperlinkListener { e -> if (e.eventType == HyperlinkEvent.EventType.ACTIVATED) BrowserUtil.browse (e.url) }
+    @Suppress("HardCodedStringLiteral")
     descriptionPane.text = "<html><p>$description"
     modulesPanel.add(descriptionPane)
   }
@@ -166,7 +168,7 @@ class ModulesPanel(val learnToolWindow: LearnToolWindow) : JPanel() {
   }
 
   private fun createSettingsButtonPanel(): JPanel {
-    val settingsAction = createAnAction(AllIcons.General.Settings) { UiManager.setLanguageChooserView() }
+    val settingsAction = createAnAction(AllIcons.General.Settings) { learnToolWindow?.setChooseLanguageView() }
     val settingsButton = ActionButton(settingsAction,
                                       Presentation("Settings").apply {
                                         icon = AllIcons.Nodes.Editorconfig
@@ -194,61 +196,6 @@ class ModulesPanel(val learnToolWindow: LearnToolWindow) : JPanel() {
     }
   }
 
-  private fun addDevelopmentTools() {
-    modulesPanel.add(JButton().apply {
-      action = object : AbstractAction() {
-        override fun actionPerformed(actionEvent: ActionEvent) {
-          learnToolWindow.changeLanguage()
-        }
-      }
-      margin = JBUI.emptyInsets()
-      isFocusable = true
-      isVisible = true
-      isSelected = true
-      isEnabled = true
-      isOpaque = false
-      text = "Change language"
-    })
-
-    modulesPanel.add(JButton().apply {
-      action = object : AbstractAction() {
-        override fun actionPerformed(actionEvent: ActionEvent) {
-          LessonStateManager.resetPassedStatus()
-          LearningLessonsAutoExecutor.runAllLessons(guessCurrentProject(modulesPanel))
-        }
-      }
-      margin = JBUI.emptyInsets()
-      isFocusable = true
-      isVisible = true
-      isSelected = true
-      isEnabled = true
-      isOpaque = false
-      text = "Run all lessons"
-    })
-  }
-
-  private fun addResetButton() {
-    val modules = CourseManager.instance.modules
-    modulesPanel.add(JButton().apply {
-      action = object : AbstractAction() {
-        override fun actionPerformed(actionEvent: ActionEvent) {
-          LessonStateManager.resetPassedStatus()
-          val project = guessCurrentProject(modulesPanel)
-          val firstLesson = modules.first().lessons.first()
-          CourseManager.instance.openLesson(project, firstLesson)
-          UiManager.setLessonView()
-        }
-      }
-      margin = JBUI.emptyInsets()
-      isFocusable = true
-      isVisible = true
-      isSelected = true
-      isEnabled = true
-      isOpaque = false
-      text = "Start from the Beginning"
-    })
-  }
-
   private fun delegateToLinkLabel(descriptionPane: ModuleDescriptionPane, moduleName: LinkLabel<*>): MouseListener {
     return object : MouseListener {
       override fun mouseClicked(e: MouseEvent) {
@@ -265,7 +212,7 @@ class ModulesPanel(val learnToolWindow: LearnToolWindow) : JPanel() {
 
       override fun mouseEntered(e: MouseEvent) {
         moduleName.entered(e)
-        descriptionPane.cursor = Cursor.getPredefinedCursor(12)
+        descriptionPane.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
       }
 
       override fun mouseExited(e: MouseEvent) {

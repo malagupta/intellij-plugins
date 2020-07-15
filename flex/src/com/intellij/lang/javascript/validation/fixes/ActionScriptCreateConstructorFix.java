@@ -1,11 +1,11 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.javascript.validation.fixes;
 
 import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.template.Template;
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.javascript.DialectDetector;
-import com.intellij.lang.javascript.JSBundle;
+import com.intellij.lang.javascript.JavaScriptBundle;
 import com.intellij.lang.javascript.JSTokenTypes;
 import com.intellij.lang.javascript.JavaScriptSupportLoader;
 import com.intellij.lang.javascript.flex.ECMAScriptImportOptimizer;
@@ -40,7 +40,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class ActionScriptCreateConstructorFix extends CreateJSFunctionIntentionAction {
+public final class ActionScriptCreateConstructorFix extends CreateJSFunctionIntentionAction {
 
   @NotNull private final SmartPsiElementPointer<JSClass> myClass;
   @NotNull private final SmartPsiElementPointer<JSReferenceExpression> myRefExpr;
@@ -158,7 +158,7 @@ public class ActionScriptCreateConstructorFix extends CreateJSFunctionIntentionA
         protected JSChangeSignatureDialog createDialog(PsiElement context, final List<JSParameterInfo> paramInfos) {
           JSMethodDescriptor descriptor = new JSMethodDescriptor(getFunction(), true) {
             @Override
-            public List<JSParameterInfo> getParameters() {
+            public @NotNull List<JSParameterInfo> getParameters() {
               return paramInfos;
             }
           };
@@ -215,13 +215,13 @@ public class ActionScriptCreateConstructorFix extends CreateJSFunctionIntentionA
   @NotNull
   @Override
   public String getName() {
-    return JSBundle.message("actionscript.create.constructor.intention.name", myName);
+    return JavaScriptBundle.message("actionscript.create.constructor.intention.name", myName);
   }
 
   private class MyDialog extends JSChangeSignatureDialog {
     MyDialog(JSMethodDescriptor descriptor, PsiElement context) {
       super(descriptor, context);
-      setTitle(JSBundle.message("create.constructor.dialog.title"));
+      setTitle(JavaScriptBundle.message("create.constructor.dialog.title"));
     }
 
     @Override

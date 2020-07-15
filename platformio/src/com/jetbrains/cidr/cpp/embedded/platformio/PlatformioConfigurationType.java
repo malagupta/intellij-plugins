@@ -10,20 +10,43 @@ import com.jetbrains.cidr.cpp.embedded.platformio.ui.EmptyEditor;
 import com.jetbrains.cidr.cpp.execution.CMakeAppRunConfiguration;
 import com.jetbrains.cidr.cpp.execution.CMakeRunConfigurationType;
 import icons.ClionEmbeddedPlatformioIcons;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.function.Supplier;
 
 public class PlatformioConfigurationType extends CMakeRunConfigurationType {
 
   public static final String PLATFORM_IO_DEBUG_ID = "PlatformIO Debug";
-  private static final String TYPE_ID = "platformio";
+  public static final String TYPE_ID = "platformio";
+  private final ConfigurationFactory[] myNewProjectFactories;
 
   public PlatformioConfigurationType() {
-    super(TYPE_ID, PLATFORM_IO_DEBUG_ID, "PlatformIO", "PlatformIO",
+    super(TYPE_ID, PLATFORM_IO_DEBUG_ID, ClionEmbeddedPlatformioBundle.message("platformio.name"),
+          ClionEmbeddedPlatformioBundle.message("platformio.description"),
           NotNullLazyValue.createValue(() -> ClionEmbeddedPlatformioIcons.Platformio));
-    addFactory(new ToolConfigurationFactory("PlatformIO Test", "-c", "clion", "test"));
-    addFactory(new ToolConfigurationFactory("PlatformIO Upload", "-c", "clion", "run", "--target", "upload"));
-    addFactory(new ToolConfigurationFactory("PlatformIO Program", "-c", "clion", "run", "--target", "program"));
-    addFactory(new ToolConfigurationFactory("PlatformIO Uploadfs", "-c", "clion", "run", "--target", "uploadfs"));
+
+    ConfigurationFactory uploadFactory = getConfigurationFactories()[0];
+    ToolConfigurationFactory uploadConfigurationFactory =
+      new ToolConfigurationFactory("PlatformIO Upload", () -> ClionEmbeddedPlatformioBundle.message("run.config.upload"), "-c", "clion",
+                                   "run", "--target", "upload");
+
+    addFactory(
+      new ToolConfigurationFactory("PlatformIO Test", () -> ClionEmbeddedPlatformioBundle.message("run.config.test"), "-c", "clion",
+                                   "test"));
+    addFactory(uploadConfigurationFactory);
+    addFactory(
+      new ToolConfigurationFactory("PlatformIO Program", () -> ClionEmbeddedPlatformioBundle.message("run.config.program"), "-c", "clion",
+                                   "run", "--target", "program"));
+    addFactory(
+      new ToolConfigurationFactory("PlatformIO Uploadfs", () -> ClionEmbeddedPlatformioBundle.message("run.config.uploadfs"), "-c", "clion",
+                                   "run", "--target", "uploadfs"));
+    myNewProjectFactories = new ConfigurationFactory[]{uploadFactory, uploadConfigurationFactory};
+  }
+
+  @NotNull
+  public ConfigurationFactory @NotNull [] getNewProjectFactories() {
+    return myNewProjectFactories;
   }
 
   @NotNull
@@ -45,7 +68,7 @@ public class PlatformioConfigurationType extends CMakeRunConfigurationType {
       @NotNull
       @Override
       public String getName() {
-        return PLATFORM_IO_DEBUG_ID;
+        return ClionEmbeddedPlatformioBundle.message("run.config.debug");
       }
 
       @Override
@@ -68,12 +91,14 @@ public class PlatformioConfigurationType extends CMakeRunConfigurationType {
     return new PlatformioDebugConfiguration(project, configurationFactory);
   }
 
-  private class ToolConfigurationFactory extends ConfigurationFactory {
+  public class ToolConfigurationFactory extends ConfigurationFactory {
     private final String[] cliParameters;
-    private final String name;
+    private final Supplier<String> name;
+    private final String myId;
 
-    ToolConfigurationFactory(@NotNull String name, String... cliParameters) {
+    ToolConfigurationFactory(@NonNls @NotNull String id, @NotNull Supplier<String> name, String... cliParameters) {
       super(PlatformioConfigurationType.this);
+      this.myId = id;
       this.name = name;
       this.cliParameters = cliParameters;
     }
@@ -85,9 +110,14 @@ public class PlatformioConfigurationType extends CMakeRunConfigurationType {
     }
 
     @Override
+    public @NotNull String getId() {
+      return myId;
+    }
+
+    @Override
     public @NotNull
     String getName() {
-      return name;
+      return name.get();
     }
   }
 }

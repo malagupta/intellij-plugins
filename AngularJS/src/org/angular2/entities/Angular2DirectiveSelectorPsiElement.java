@@ -3,57 +3,63 @@ package org.angular2.entities;
 import com.intellij.icons.AllIcons;
 import com.intellij.lang.javascript.psi.ecma6.TypeScriptClass;
 import com.intellij.navigation.NavigationItem;
-import com.intellij.openapi.util.AtomicNotNullLazyValue;
-import com.intellij.openapi.util.NotNullFactory;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.pom.PomTarget;
+import com.intellij.pom.PsiDeclaredTarget;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.impl.FakePsiElement;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.SearchScope;
-import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
-public class Angular2DirectiveSelectorPsiElement extends FakePsiElement implements PomTarget, NavigationItem {
+import static org.angular2.Angular2DecoratorUtil.getClassForDecoratorElement;
 
-  private final AtomicNotNullLazyValue<PsiElement> myParent;
+public class Angular2DirectiveSelectorPsiElement extends FakePsiElement implements PsiDeclaredTarget, NavigationItem {
+
+  private final Angular2DirectiveSelectorImpl myParent;
   private final TextRange myRange;
   private final String myName;
   private final boolean myIsElement;
 
-  public Angular2DirectiveSelectorPsiElement(@NotNull NotNullFactory<PsiElement> parent,
+  public Angular2DirectiveSelectorPsiElement(@NotNull Angular2DirectiveSelectorImpl parent,
                                              @NotNull TextRange range,
                                              @NotNull String name,
                                              boolean isElement) {
-    myParent = AtomicNotNullLazyValue.createValue(parent);
+    myParent = parent;
     myRange = range;
     myName = name;
     myIsElement = isElement;
   }
 
   @Override
-  @NotNull
-  public String getName() {
+  public @NotNull String getName() {
     return myName;
   }
 
   @Override
+  public PsiElement setName(@NotNull String name) throws IncorrectOperationException {
+    if (myRange.getLength() > 0) {
+      myParent.replaceText(myRange, name);
+    }
+    return this;
+  }
+
+  @Override
   public PsiElement getParent() {
-    return myParent.getValue();
+    return myParent.getPsiParent();
   }
 
   @Override
   public int getTextOffset() {
-    return myParent.getValue().getTextOffset() + myRange.getStartOffset();
+    return myParent.getPsiParent().getTextOffset() + myRange.getStartOffset();
   }
 
-  @Nullable
   @Override
-  public TextRange getTextRange() {
-    int startOffset = myParent.getValue().getTextOffset() + myRange.getStartOffset();
+  public @Nullable TextRange getTextRange() {
+    int startOffset = myParent.getPsiParent().getTextOffset() + myRange.getStartOffset();
     return new TextRange(startOffset, startOffset + myName.length());
   }
 
@@ -62,16 +68,19 @@ public class Angular2DirectiveSelectorPsiElement extends FakePsiElement implemen
     return myName.length();
   }
 
-  @Nullable
   @Override
-  public String getText() {
+  public @Nullable String getText() {
     return myName;
   }
 
-  @NotNull
   @Override
-  public TextRange getTextRangeInParent() {
+  public @NotNull TextRange getTextRangeInParent() {
     return myRange;
+  }
+
+  @Override
+  public @Nullable TextRange getNameIdentifierRange() {
+    return new TextRange(0, myRange.getLength());
   }
 
   @Override
@@ -89,24 +98,21 @@ public class Angular2DirectiveSelectorPsiElement extends FakePsiElement implemen
     return getName();
   }
 
-  @Nullable
   @Override
-  public String getLocationString() {
-    PsiElement parent = myParent.getValue();
-    TypeScriptClass clazz = PsiTreeUtil.getContextOfType(parent, TypeScriptClass.class, false);
+  public @Nullable String getLocationString() {
+    PsiElement parent = myParent.getPsiParent();
+    TypeScriptClass clazz = getClassForDecoratorElement(parent);
     return clazz != null ? "(" + clazz.getName() + ", " + parent.getContainingFile().getName() + ")"
                          : parent.getContainingFile().getName() + ":" + getTextOffset();
   }
 
-  @NotNull
   @Override
-  public SearchScope getUseScope() {
+  public @NotNull SearchScope getUseScope() {
     return GlobalSearchScope.projectScope(getProject());
   }
 
-  @Nullable
   @Override
-  public Icon getIcon(boolean open) {
+  public @Nullable Icon getIcon(boolean open) {
     return isElementSelector() ? AllIcons.Nodes.Tag : AllIcons.Nodes.ObjectTypeAttribute;
   }
 

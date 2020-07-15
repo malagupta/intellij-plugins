@@ -1,10 +1,8 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.lang.dart.ide.hierarchy.type;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
-import com.intellij.ide.hierarchy.newAPI.HierarchyNodeDescriptor;
-import com.intellij.ide.hierarchy.newAPI.HierarchyTreeStructure;
+import com.intellij.ide.hierarchy.HierarchyNodeDescriptor;
+import com.intellij.ide.hierarchy.HierarchyTreeStructure;
 import com.intellij.openapi.project.Project;
 import com.intellij.util.ArrayUtilRt;
 import com.jetbrains.lang.dart.psi.DartClass;
@@ -12,6 +10,8 @@ import com.jetbrains.lang.dart.util.DartResolveUtil;
 import org.dartlang.analysis.server.protocol.TypeHierarchyItem;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -34,7 +34,7 @@ public final class DartServerSupertypesHierarchyTreeStructure extends HierarchyT
     final List<TypeHierarchyItem> items = getTypeHierarchyItems(dartClass);
     if (items.isEmpty()) return ArrayUtilRt.EMPTY_OBJECT_ARRAY;
 
-    addSuperClassHierarchy(Sets.newHashSet(), myProject, items, items.get(0), descriptor);
+    addSuperClassHierarchy(new HashSet<TypeHierarchyItem>(), myProject, items, items.get(0), descriptor);
 
     return descriptor.getCachedChildren();
   }
@@ -49,7 +49,7 @@ public final class DartServerSupertypesHierarchyTreeStructure extends HierarchyT
       return;
     }
 
-    List<HierarchyNodeDescriptor> superDescriptors = Lists.newArrayList();
+    List<HierarchyNodeDescriptor> superDescriptors = new ArrayList<>();
     try {
       // superclass
       final Integer superIndex = item.getSuperclass();

@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.angular2.inspections.quickfixes;
 
 import com.intellij.codeInspection.LocalQuickFix;
@@ -23,7 +23,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.List;
 import java.util.Objects;
 
-public class ExportNgModuleDeclarationQuickFix extends LocalQuickFixAndIntentionActionOnPsiElement {
+public final class ExportNgModuleDeclarationQuickFix extends LocalQuickFixAndIntentionActionOnPsiElement {
 
   public static void add(@NotNull PsiElement context,
                          @NotNull Angular2Declaration declaration,
@@ -34,10 +34,8 @@ public class ExportNgModuleDeclarationQuickFix extends LocalQuickFixAndIntention
     }
   }
 
-  @NotNull
-  private final String myDeclarationName;
-  @NotNull
-  private final SmartPsiElementPointer<ES6Decorator> myDeclarationDecorator;
+  private final @NotNull String myDeclarationName;
+  private final @NotNull SmartPsiElementPointer<ES6Decorator> myDeclarationDecorator;
 
   private ExportNgModuleDeclarationQuickFix(@NotNull PsiElement context,
                                             @NotNull Angular2SourceDeclaration declaration) {
@@ -46,16 +44,13 @@ public class ExportNgModuleDeclarationQuickFix extends LocalQuickFixAndIntention
     myDeclarationDecorator = SmartPointerManager.createPointer(declaration.getDecorator());
   }
 
-  @NotNull
   @Override
-  public String getText() {
+  public @NotNull String getText() {
     return Angular2Bundle.message("angular.quickfix.ngmodule.export.name", myDeclarationName);
   }
 
-  @Nls(capitalization = Nls.Capitalization.Sentence)
-  @NotNull
   @Override
-  public String getFamilyName() {
+  public @Nls(capitalization = Nls.Capitalization.Sentence) @NotNull String getFamilyName() {
     return Angular2Bundle.message("angular.quickfix.ngmodule.export.family");
   }
 

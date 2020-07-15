@@ -1,7 +1,6 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.javascript.karma.server;
 
-import com.google.common.collect.Lists;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
 import com.intellij.execution.ExecutionException;
@@ -43,9 +42,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
-public class KarmaServer {
-
+public final class KarmaServer {
   private static final Logger LOG = Logger.getInstance(KarmaServer.class);
 
   private final KarmaProcessOutputManager myProcessOutputManager;
@@ -54,13 +53,13 @@ public class KarmaServer {
   private final KarmaServerSettings myServerSettings;
   private final ConsoleCommandLineFolder myCommandLineFolder = new ConsoleCommandLineFolder();
 
-  private List<Runnable> myOnPortBoundCallbacks = Lists.newCopyOnWriteArrayList();
-  private List<Runnable> myOnBrowsersReadyCallbacks = Lists.newCopyOnWriteArrayList();
+  private List<Runnable> myOnPortBoundCallbacks = ContainerUtil.createLockFreeCopyOnWriteList();
+  private List<Runnable> myOnBrowsersReadyCallbacks = ContainerUtil.createLockFreeCopyOnWriteList();
 
   private Integer myExitCode = null;
-  private final List<KarmaServerTerminatedListener> myTerminationCallbacks = Lists.newCopyOnWriteArrayList();
+  private final List<KarmaServerTerminatedListener> myTerminationCallbacks = ContainerUtil.createLockFreeCopyOnWriteList();
 
-  private final Map<String, StreamEventHandler> myHandlers = ContainerUtil.newConcurrentMap();
+  private final Map<String, StreamEventHandler> myHandlers = new ConcurrentHashMap<>();
   private final MyDisposable myDisposable;
   private final KarmaServerRestarter myRestarter;
   private final int myProcessHashCode;
@@ -84,7 +83,7 @@ public class KarmaServer {
     LOG.info("Karma server " + processHashCode + " started successfully: " + processHandler.getCommandLine());
     processHandler.addProcessListener(new ProcessAdapter() {
       @Override
-      public void processTerminated(@NotNull final ProcessEvent event) {
+      public void processTerminated(final @NotNull ProcessEvent event) {
         LOG.info("Karma server " + processHashCode + " terminated with exit code " + event.getExitCode());
         Disposer.dispose(myDisposable);
         fireOnTerminated(event.getExitCode());
@@ -121,18 +120,15 @@ public class KarmaServer {
     });
   }
 
-  @NotNull
-  public KarmaServerSettings getServerSettings() {
+  public @NotNull KarmaServerSettings getServerSettings() {
     return myServerSettings;
   }
 
-  @NotNull
-  public KarmaServerRestarter getRestarter() {
+  public @NotNull KarmaServerRestarter getRestarter() {
     return myRestarter;
   }
 
-  @Nullable
-  public KarmaCoveragePeer getCoveragePeer() {
+  public @Nullable KarmaCoveragePeer getCoveragePeer() {
     return myCoveragePeer;
   }
 
@@ -140,16 +136,14 @@ public class KarmaServer {
     myHandlers.put(handler.getEventType(), handler);
   }
 
-  @NotNull
-  public ConsoleCommandLineFolder getCommandLineFolder() {
+  public @NotNull ConsoleCommandLineFolder getCommandLineFolder() {
     return myCommandLineFolder;
   }
 
-  @NotNull
-  private static KillableColoredProcessHandler startServer(@NotNull Project project,
-                                                           @NotNull KarmaServerSettings serverSettings,
-                                                           @Nullable KarmaCoveragePeer coveragePeer,
-                                                           @NotNull ConsoleCommandLineFolder commandLineFolder) throws IOException {
+  private static @NotNull KillableColoredProcessHandler startServer(@NotNull Project project,
+                                                                    @NotNull KarmaServerSettings serverSettings,
+                                                                    @Nullable KarmaCoveragePeer coveragePeer,
+                                                                    @NotNull ConsoleCommandLineFolder commandLineFolder) throws IOException {
     GeneralCommandLine commandLine = ReadAction.compute(() -> {
       try {
         return createCommandLine(project, serverSettings, coveragePeer, commandLineFolder);
@@ -170,11 +164,10 @@ public class KarmaServer {
     return processHandler;
   }
 
-  @NotNull
-  private static GeneralCommandLine createCommandLine(@NotNull Project project,
-                                                      @NotNull KarmaServerSettings serverSettings,
-                                                      @Nullable KarmaCoveragePeer coveragePeer,
-                                                      @NotNull ConsoleCommandLineFolder commandLineFolder) throws IOException,
+  private static @NotNull GeneralCommandLine createCommandLine(@NotNull Project project,
+                                                               @NotNull KarmaServerSettings serverSettings,
+                                                               @Nullable KarmaCoveragePeer coveragePeer,
+                                                               @NotNull ConsoleCommandLineFolder commandLineFolder) throws IOException,
                                                                                                                   ExecutionException {
     NodeCommandLineConfigurator configurator = NodeCommandLineConfigurator.find(serverSettings.getNodeInterpreter());
     GeneralCommandLine commandLine = new GeneralCommandLine();
@@ -279,8 +272,7 @@ public class KarmaServer {
     }
   }
 
-  @NotNull
-  public KarmaProcessOutputManager getProcessOutputManager() {
+  public @NotNull KarmaProcessOutputManager getProcessOutputManager() {
     return myProcessOutputManager;
   }
 
@@ -295,7 +287,7 @@ public class KarmaServer {
   /**
    * Executes {@code callback} in EDT when the server port is bound.
    */
-  public void onPortBound(@NotNull final Runnable callback) {
+  public void onPortBound(final @NotNull Runnable callback) {
     UIUtil.invokeLaterIfNeeded(() -> {
       if (myOnPortBoundCallbacks != null) {
         myOnPortBoundCallbacks.add(callback);
@@ -324,7 +316,7 @@ public class KarmaServer {
   /**
    * Executes {@code callback} in EDT when at least one browser is captured and all config.browsers are captured.
    */
-  public void onBrowsersReady(@NotNull final Runnable callback) {
+  public void onBrowsersReady(final @NotNull Runnable callback) {
     UIUtil.invokeLaterIfNeeded(() -> {
       if (myOnBrowsersReadyCallbacks != null) {
         myOnBrowsersReadyCallbacks.add(callback);
@@ -346,7 +338,7 @@ public class KarmaServer {
         }
       }
       else {
-        myOnBrowsersReadyCallbacks = Lists.newCopyOnWriteArrayList();
+        myOnBrowsersReadyCallbacks = ContainerUtil.createLockFreeCopyOnWriteList();
       }
     });
   }
@@ -354,7 +346,7 @@ public class KarmaServer {
   /**
    * Executes {@code terminationCallback} in EDT when the server is shut down.
    */
-  public void onTerminated(@NotNull final KarmaServerTerminatedListener terminationCallback) {
+  public void onTerminated(final @NotNull KarmaServerTerminatedListener terminationCallback) {
     UIUtil.invokeLaterIfNeeded(() -> {
       if (myExitCode != null) {
         terminationCallback.onTerminated(myExitCode);
@@ -365,7 +357,7 @@ public class KarmaServer {
     });
   }
 
-  public void removeTerminatedListener(@NotNull final KarmaServerTerminatedListener listener) {
+  public void removeTerminatedListener(final @NotNull KarmaServerTerminatedListener listener) {
     UIUtil.invokeLaterIfNeeded(() -> myTerminationCallbacks.remove(listener));
   }
 
@@ -380,24 +372,20 @@ public class KarmaServer {
     });
   }
 
-  @Nullable
-  public KarmaConfig getKarmaConfig() {
+  public @Nullable KarmaConfig getKarmaConfig() {
     return myState.getKarmaConfig();
   }
 
-  @NotNull
-  public String formatUrlWithoutUrlRoot(@NotNull String path) {
+  public @NotNull String formatUrlWithoutUrlRoot(@NotNull String path) {
     return formatUrl(path, false);
   }
 
   @SuppressWarnings("SameParameterValue")
-  @NotNull
-  public String formatUrl(@NotNull String path) {
+  public @NotNull String formatUrl(@NotNull String path) {
     return formatUrl(path, true);
   }
 
-  @NotNull
-  private String formatUrl(@NotNull String path, boolean withUrlRoot) {
+  private @NotNull String formatUrl(@NotNull String path, boolean withUrlRoot) {
     if (!path.startsWith("/")) {
       path = "/" + path;
     }
@@ -414,8 +402,7 @@ public class KarmaServer {
     return "http://localhost:" + getServerPort() + path;
   }
 
-  @NotNull
-  public ProcessHandler getProcessHandler() {
+  public @NotNull ProcessHandler getProcessHandler() {
     return myProcessOutputManager.getProcessHandler();
   }
 

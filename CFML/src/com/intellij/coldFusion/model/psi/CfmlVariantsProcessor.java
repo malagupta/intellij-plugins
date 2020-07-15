@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.coldFusion.model.psi;
 
@@ -23,7 +9,6 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.resolve.JavaMethodCandidateInfo;
 import com.intellij.psi.resolve.JavaMethodResolveHelper;
-import com.intellij.psi.scope.JavaScopeProcessorEvent;
 import com.intellij.psi.scope.PsiScopeProcessor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -36,11 +21,12 @@ import static com.intellij.util.containers.ContainerUtil.addIfNotNull;
 
 public abstract class CfmlVariantsProcessor<T> implements PsiScopeProcessor {
 
-  public static class CfmlProcessorEvent implements PsiScopeProcessor.Event {
+  public static final class CfmlProcessorEvent implements PsiScopeProcessor.Event {
     private CfmlProcessorEvent() {
     }
 
     public static final CfmlProcessorEvent SET_INITIAL_CLASS = new CfmlProcessorEvent();
+    public static final CfmlProcessorEvent START_STATIC = new CfmlProcessorEvent();
   }
 
   private final Set<T> myResult = new LinkedHashSet<>();
@@ -76,7 +62,7 @@ public abstract class CfmlVariantsProcessor<T> implements PsiScopeProcessor {
 
   @Override
   public void handleEvent(@NotNull Event event, Object associated) {
-    if (event == JavaScopeProcessorEvent.START_STATIC) {
+    if (event == CfmlProcessorEvent.START_STATIC) {
       myStaticScopeFlag = true;
     }
     else if (event == CfmlProcessorEvent.SET_INITIAL_CLASS && associated instanceof PsiClass) {

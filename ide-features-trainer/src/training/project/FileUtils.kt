@@ -2,6 +2,7 @@
 package training.project
 
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.util.io.FileUtil
 import org.apache.commons.lang.StringUtils
 import java.io.*
 import java.net.JarURLConnection
@@ -9,36 +10,6 @@ import java.net.URL
 
 object FileUtils {
   private val LOG = Logger.getInstance(FileUtils::class.java)
-
-  private fun copyFile(toCopy: File, destFile: File): Boolean {
-    try {
-      return copyStream(FileInputStream(toCopy), FileOutputStream(destFile))
-    }
-    catch (e: FileNotFoundException) {
-      LOG.warn(e)
-    }
-    return false
-  }
-
-  private fun copyFilesRecursively(toCopy: File, destDir: File): Boolean {
-    assert(ensureDirectoryExists(destDir) && destDir.isDirectory)
-
-    if (!toCopy.isDirectory) {
-      return copyFile(toCopy, File(destDir, toCopy.name))
-    }
-    else {
-      val newDestDir = File(destDir, toCopy.name)
-      if (!newDestDir.exists() && !newDestDir.mkdir()) {
-        return false
-      }
-      for (child in toCopy.listFiles() ?: arrayOf()) {
-        if (!copyFilesRecursively(child, newDestDir)) {
-          return false
-        }
-      }
-    }
-    return true
-  }
 
   @Throws(IOException::class)
   fun copyJarResourcesRecursively(destDir: File,
@@ -72,13 +43,14 @@ object FileUtils {
   fun copyResourcesRecursively(originUrl: URL, destination: File): Boolean {
     try {
       val urlConnection = originUrl.openConnection()
-      return if (urlConnection is JarURLConnection)
+      if (urlConnection is JarURLConnection)
         copyJarResourcesRecursively(destination, urlConnection)
       else
-        copyFilesRecursively(File(originUrl.path), destination.parentFile)
+        FileUtil.copyDirContent(File(originUrl.path), destination)
+      return true
     }
     catch (e: IOException) {
-      LOG.warn(e)
+      LOG.error(e)
     }
     return false
   }
@@ -88,7 +60,7 @@ object FileUtils {
       return copyStream(inputStream, FileOutputStream(f))
     }
     catch (e: FileNotFoundException) {
-      LOG.warn(e)
+      LOG.error(e)
     }
     return false
   }
@@ -106,7 +78,7 @@ object FileUtils {
       return true
     }
     catch (e: IOException) {
-      LOG.warn(e)
+      LOG.error(e)
     }
     return false
   }

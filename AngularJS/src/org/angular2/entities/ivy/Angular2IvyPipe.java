@@ -12,21 +12,19 @@ import java.util.Collection;
 
 import static com.intellij.util.ObjectUtils.notNull;
 
-public class Angular2IvyPipe extends Angular2IvyDeclaration<Angular2IvyEntityDef.Pipe> implements Angular2Pipe {
+public class Angular2IvyPipe extends Angular2IvyDeclaration<Angular2IvySymbolDef.Pipe> implements Angular2Pipe {
 
-  public Angular2IvyPipe(@NotNull Angular2IvyEntityDef.Pipe entityDef) {
+  public Angular2IvyPipe(@NotNull Angular2IvySymbolDef.Pipe entityDef) {
     super(entityDef);
   }
 
-  @NotNull
   @Override
-  public String getName() {
+  public @NotNull String getName() {
     return notNull(myEntityDef.getName(), () -> Angular2Bundle.message("angular.description.unnamed"));
   }
 
-  @NotNull
   @Override
-  public Collection<? extends TypeScriptFunction> getTransformMethods() {
+  public @NotNull Collection<? extends TypeScriptFunction> getTransformMethods() {
     return getCachedValue(() -> CachedValueProvider.Result.create(
       Angular2EntityUtils.getPipeTransformMethods(myClass), getClassModificationDependencies())
     );

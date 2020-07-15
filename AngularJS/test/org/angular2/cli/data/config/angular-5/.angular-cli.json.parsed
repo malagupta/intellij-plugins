@@ -3,9 +3,11 @@
    projects: [
      AngularLegacyProjectImpl {
        name: idle-ant
+       type: null
        rootDir: temp:///src
        sourceDir: temp:///src/src
        indexHtml: temp:///src/src/index.html
+       tsConfig: temp:///src/src/tsconfig.app.json
        globalStyleSheets: [temp:///src/src/styles.scss]
        stylePreprocessorIncludeDirs: []
        karmaConfigFile: temp:///src/karma.conf.js

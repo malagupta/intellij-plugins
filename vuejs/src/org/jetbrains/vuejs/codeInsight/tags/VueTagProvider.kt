@@ -6,6 +6,7 @@ import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.codeInsight.lookup.LookupElementBuilder
 import com.intellij.lang.javascript.DialectDetector
 import com.intellij.lang.javascript.library.JSLibraryUtil
+import com.intellij.lang.javascript.psi.stubs.JSImplicitElement
 import com.intellij.lang.javascript.settings.JSApplicationSettings
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.util.text.StringUtil
@@ -20,7 +21,6 @@ import org.jetbrains.vuejs.codeInsight.fromAsset
 import org.jetbrains.vuejs.codeInsight.toAsset
 import org.jetbrains.vuejs.context.isVueContext
 import org.jetbrains.vuejs.lang.html.VueFileType
-import org.jetbrains.vuejs.lang.html.VueLanguage
 import org.jetbrains.vuejs.model.*
 
 private const val LOCAL_PRIORITY = 100.0
@@ -31,17 +31,21 @@ private const val UNREGISTERED_PRIORITY = 50.0
 
 class VueTagProvider : XmlElementDescriptorProvider, XmlTagNameProvider {
   override fun getDescriptor(tag: XmlTag?): XmlElementDescriptor? {
-    if (tag?.containingFile?.language != VueLanguage.INSTANCE
+    if (tag == null
         || DumbService.isDumb(tag.project)
         || !isVueContext(tag)) return null
 
     val tagName = fromAsset(tag.name)
+    val containingFile = tag.containingFile.originalFile
 
     val components = mutableListOf<VueComponent>()
     VueModelManager.findEnclosingContainer(tag)?.acceptEntities(object : VueModelProximityVisitor() {
       override fun visitComponent(name: String, component: VueComponent, proximity: Proximity): Boolean {
         return acceptSameProximity(proximity, fromAsset(name) == tagName) {
-          components.add(component)
+          // Cannot self refer without export declaration with component name
+          if ((component.source as? JSImplicitElement)?.context != containingFile) {
+            components.add(component)
+          }
         }
       }
     }, VueModelVisitor.Proximity.GLOBAL)
@@ -62,9 +66,14 @@ class VueTagProvider : XmlElementDescriptorProvider, XmlTagNameProvider {
     else
       { name -> listOf(fromAsset(name)) }
 
+    val containingFile = tag.containingFile.originalFile
     val providedNames = mutableSetOf<String>()
     VueModelManager.findEnclosingContainer(tag)?.acceptEntities(object : VueModelVisitor() {
       override fun visitComponent(name: String, component: VueComponent, proximity: Proximity): Boolean {
+        // Cannot self refer without export declaration with component name
+        if ((component.source as? JSImplicitElement)?.context == containingFile) {
+          return true
+        }
         val moduleName: String? = if (component.parents.size == 1) {
           (component.parents.first() as? VuePlugin)?.moduleName
         }

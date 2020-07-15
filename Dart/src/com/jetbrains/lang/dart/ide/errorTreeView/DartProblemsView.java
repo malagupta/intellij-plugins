@@ -7,6 +7,7 @@ import com.intellij.ide.projectView.impl.ProjectViewPane;
 import com.intellij.notification.*;
 import com.intellij.notification.impl.NotificationSettings;
 import com.intellij.notification.impl.NotificationsConfigurationImpl;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.components.*;
@@ -24,6 +25,7 @@ import com.jetbrains.lang.dart.analyzer.DartAnalysisServerService;
 import gnu.trove.THashMap;
 import icons.DartIcons;
 import org.dartlang.analysis.server.protocol.AnalysisError;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -36,15 +38,12 @@ import java.util.Map;
   name = "DartProblemsView",
   storages = @Storage(StoragePathMacros.WORKSPACE_FILE)
 )
-public class DartProblemsView implements PersistentStateComponent<DartProblemsViewSettings> {
-  /**
-   * @deprecated Use {@link #getToolwindowId()} instead
-   */
-  @Deprecated
-  public static final String TOOLWINDOW_ID = getToolwindowId();
+public class DartProblemsView implements PersistentStateComponent<DartProblemsViewSettings>, Disposable {
+
+  @NonNls public static final String TOOLWINDOW_ID = "Dart Analysis"; // the same as in plugin.xml, this is not a user-visible string
 
   private static final NotificationGroup NOTIFICATION_GROUP =
-    NotificationGroup.toolWindowGroup(getToolwindowId(), getToolwindowId(), false);
+    NotificationGroup.toolWindowGroup(TOOLWINDOW_ID, TOOLWINDOW_ID, false);
 
   private static final int TABLE_REFRESH_PERIOD = 300;
 
@@ -55,6 +54,7 @@ public class DartProblemsView implements PersistentStateComponent<DartProblemsVi
   private final Map<String, List<? extends AnalysisError>> myScheduledFilePathToErrors = new THashMap<>();
   private final Alarm myAlarm;
 
+  @NotNull
   private Icon myCurrentIcon = DartIcons.Dart_13;
   private boolean myAnalysisIsBusy;
 
@@ -90,7 +90,7 @@ public class DartProblemsView implements PersistentStateComponent<DartProblemsVi
   public DartProblemsView(@NotNull Project project) {
     myProject = project;
     myPresentationHelper = new DartProblemsPresentationHelper(project);
-    myAlarm = new Alarm(Alarm.ThreadToUse.SWING_THREAD, project);
+    myAlarm = new Alarm(Alarm.ThreadToUse.SWING_THREAD, this);
 
     project.getMessageBus().connect().subscribe(
       DartAnalysisServerMessages.DART_ANALYSIS_TOPIC, new DartAnalysisServerMessages.DartAnalysisNotifier() {
@@ -108,6 +108,7 @@ public class DartProblemsView implements PersistentStateComponent<DartProblemsVi
       }
     );
   }
+
   DartProblemsPresentationHelper getPresentationHelper() {
 
     return myPresentationHelper;
@@ -115,7 +116,7 @@ public class DartProblemsView implements PersistentStateComponent<DartProblemsVi
 
   @Nullable
   private ToolWindow getDartAnalysisToolWindow() {
-    return ToolWindowManager.getInstance(myProject).getToolWindow(getToolwindowId());
+    return ToolWindowManager.getInstance(myProject).getToolWindow(TOOLWINDOW_ID);
   }
 
   @Nullable
@@ -150,7 +151,7 @@ public class DartProblemsView implements PersistentStateComponent<DartProblemsVi
     }
   }
 
-  public static DartProblemsView getInstance(@NotNull final Project project) {
+  public static @NotNull DartProblemsView getInstance(@NotNull final Project project) {
     return ServiceManager.getService(project, DartProblemsView.class);
   }
 
@@ -218,16 +219,17 @@ public class DartProblemsView implements PersistentStateComponent<DartProblemsVi
           myDisabledForSession = true;
         }
         else if ("never.show.again".equals(e.getDescription())) {
-          NOTIFICATION_GROUP.createNotification("Warning disabled.",
-                                                "You can enable it back in the <a href=''>Event Log</a> settings.",
-                                                NotificationType.INFORMATION, new Adapter() {
-              @Override
-              protected void hyperlinkActivated(@NotNull Notification notification, @NotNull HyperlinkEvent e) {
-                notification.expire();
-                final ToolWindow toolWindow = EventLog.getEventLog(myProject);
-                if (toolWindow != null) toolWindow.activate(null);
-              }
-            }).notify(myProject);
+          NOTIFICATION_GROUP
+            .createNotification(DartBundle.message("notification.title.warning.disabled"),
+                                DartBundle.message("notification.content.you.can.enable.it.back.in.the.a.href.event.log.a.settings"),
+                                NotificationType.INFORMATION, new Adapter() {
+                @Override
+                protected void hyperlinkActivated(@NotNull Notification notification, @NotNull HyperlinkEvent e) {
+                  notification.expire();
+                  final ToolWindow toolWindow = EventLog.getEventLog(myProject);
+                  if (toolWindow != null) toolWindow.activate(null);
+                }
+              }).notify(myProject);
 
           final NotificationSettings oldSettings = NotificationsConfigurationImpl.getSettings(notification.getGroupId());
           NotificationsConfigurationImpl.getInstanceImpl().changeSettings(oldSettings.getGroupId(), NotificationDisplayType.NONE,
@@ -302,8 +304,6 @@ public class DartProblemsView implements PersistentStateComponent<DartProblemsVi
     }
   }
 
-  @NotNull
-  static String getToolwindowId() {
-    return DartBundle.message("dart.analysis.tool.window");
-  }
+  @Override
+  public void dispose() {}
 }

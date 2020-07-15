@@ -19,7 +19,6 @@ import com.intellij.codeInsight.lookup.LookupElementBuilder;
 import com.intellij.javaee.web.CustomServletReferenceAdapter;
 import com.intellij.javaee.web.ServletMappingInfo;
 import com.intellij.openapi.paths.PathReference;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
@@ -33,7 +32,6 @@ import com.intellij.struts2.dom.struts.strutspackage.StrutsPackage;
 import com.intellij.struts2.model.constant.StrutsConstantHelper;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ConstantFunction;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import icons.Struts2Icons;
 import org.jetbrains.annotations.NotNull;
@@ -41,6 +39,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Provides links to Action-URLs in all places where Servlet-URLs are processed.
@@ -98,7 +97,7 @@ TODO not needed so far ?!
   }
 
 
-  private static class ActionLinkReference extends PsiReferenceBase<PsiElement> implements EmptyResolveMessageProvider {
+  private static final class ActionLinkReference extends PsiReferenceBase<PsiElement> implements EmptyResolveMessageProvider {
 
     private final StrutsModel strutsModel;
     private final List<String> actionExtensions;
@@ -212,7 +211,7 @@ TODO not needed so far ?!
   /**
    * Provides reference to S2-package within action-path.
    */
-  private static class ActionLinkPackageReference extends PsiReferenceBase<PsiElement> implements EmptyResolveMessageProvider {
+  private static final class ActionLinkPackageReference extends PsiReferenceBase<PsiElement> implements EmptyResolveMessageProvider {
 
     private final String namespace;
     private final List<StrutsPackage> allStrutsPackages;
@@ -239,7 +238,7 @@ TODO not needed so far ?!
     @Override
     public PsiElement resolve() {
       for (final StrutsPackage strutsPackage : allStrutsPackages) {
-        if (Comparing.equal(namespace, strutsPackage.searchNamespace())) {
+        if (Objects.equals(namespace, strutsPackage.searchNamespace())) {
           return strutsPackage.getXmlTag();
         }
       }
@@ -249,7 +248,7 @@ TODO not needed so far ?!
 
     @Override
     public Object @NotNull [] getVariants() {
-      return ContainerUtil.map2Array(allStrutsPackages, Object.class, (Function<StrutsPackage, Object>)strutsPackage -> {
+      return ContainerUtil.map2Array(allStrutsPackages, Object.class, strutsPackage -> {
         final String packageNamespace = strutsPackage.searchNamespace();
         return LookupElementBuilder.create(packageNamespace.length() != 1 ? packageNamespace + "/" : packageNamespace)
           .withIcon(StrutsIcons.STRUTS_PACKAGE)

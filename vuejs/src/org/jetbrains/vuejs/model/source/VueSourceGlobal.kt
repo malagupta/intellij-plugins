@@ -3,6 +3,7 @@ package org.jetbrains.vuejs.model.source
 
 import com.intellij.lang.javascript.psi.JSObjectLiteralExpression
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
@@ -12,16 +13,23 @@ import com.intellij.psi.util.CachedValueProvider.Result
 import com.intellij.psi.util.CachedValuesManager
 import com.intellij.psi.util.PsiModificationTracker
 import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.util.indexing.FileBasedIndex
 import one.util.streamex.EntryStream
+import org.jetbrains.vuejs.codeInsight.fromAsset
 import org.jetbrains.vuejs.codeInsight.toAsset
 import org.jetbrains.vuejs.index.*
 import org.jetbrains.vuejs.model.*
+import org.jetbrains.vuejs.model.webtypes.registry.VueWebTypesRegistry
 import java.util.*
 
 class VueSourceGlobal(override val project: Project, private val packageJsonUrl: String?) : VueGlobal {
 
   override val global: VueGlobal = this
-  override val plugins: List<VuePlugin> = emptyList()
+  override val plugins: List<VuePlugin>
+    get() =
+      CachedValuesManager.getManager(project).getCachedValue(project) {
+        VueWebTypesRegistry.createWebTypesPlugin(project, VUE_MODULE, null, this)
+      }?.let { listOf(it) } ?: emptyList()
   override val source: PsiElement? = null
   override val parents: List<VueEntitiesContainer> = emptyList()
 
@@ -88,6 +96,18 @@ class VueSourceGlobal(override val project: Project, private val packageJsonUrl:
         globalComponents[target]?.let { globalComponents.putIfAbsent(alias, it) }
       }
 
+      // Add Vue files without <script> section as possible imports
+      val psiManager = PsiManager.getInstance(project)
+      FileBasedIndex.getInstance().getFilesWithKey(VueNoScriptFilesIndex.VUE_NO_SCRIPT_FILES_INDEX, setOf(true), { file ->
+        val componentName = fromAsset(file.nameWithoutExtension)
+        if (!localComponents.containsKey(componentName)) {
+          psiManager.findFile(file)
+            ?.let { psiFile -> VueModelManager.getComponent(VueSourceEntityDescriptor(source = psiFile)) }
+            ?.let { localComponents[componentName] = it }
+        }
+        true
+      }, scope)
+
       sortedMapOf(Pair(true, globalComponents),
                   Pair(false, localComponents))
     }[global] ?: emptyMap()
@@ -106,7 +126,10 @@ class VueSourceGlobal(override val project: Project, private val packageJsonUrl:
     return CachedValuesManager.getManager(project).getCachedValue(
       psiFile ?: project,
       manager.getKeyForClass(provider::class.java),
-      { Result.create(provider(searchScope), PsiModificationTracker.MODIFICATION_COUNT) },
+      {
+        Result.create(provider(searchScope), VirtualFileManager.VFS_STRUCTURE_MODIFICATIONS,
+                      PsiModificationTracker.MODIFICATION_COUNT)
+      },
       false)
   }
 
@@ -117,7 +140,7 @@ class VueSourceGlobal(override val project: Project, private val packageJsonUrl:
         .map { Pair(it.name, VueSourceDirective(it.name, it.parent)) }
         // TODO properly support multiple directives with the same name
         .distinctBy { it.first }
-        .toMap()
+        .toMap(TreeMap())
     }
 
     private fun buildMixinsList(scope: GlobalSearchScope): List<VueMixin> {

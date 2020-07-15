@@ -115,7 +115,7 @@ public class FrameworkDefinitionsEditorComponent {
 
     new DoubleClickListener() {
       @Override
-      protected boolean onDoubleClick(MouseEvent e) {
+      protected boolean onDoubleClick(@NotNull MouseEvent e) {
         if (myFrameworkInstances.getSelectedIndex() != -1) {
           editFrameworkInstance();
           return true;
@@ -191,7 +191,7 @@ public class FrameworkDefinitionsEditorComponent {
   }
 
 
-  private class AddAction extends AnAction implements DumbAware, Comparable<AddAction> {
+  private final class AddAction extends AnAction implements DumbAware, Comparable<AddAction> {
     private final FrameworkIntegrator myIntegrator;
 
     private AddAction(FrameworkIntegrator integrator) {

@@ -1,13 +1,13 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.lang.dart;
 
 import com.intellij.openapi.fileTypes.LanguageFileType;
-import com.intellij.openapi.vfs.VirtualFile;
 import icons.DartIcons;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 
-public class DartFileType extends LanguageFileType {
+public final class DartFileType extends LanguageFileType {
   public static final LanguageFileType INSTANCE = new DartFileType();
   public static final String DEFAULT_EXTENSION = "dart";
 
@@ -24,7 +24,7 @@ public class DartFileType extends LanguageFileType {
   @NotNull
   @Override
   public String getDescription() {
-    return "Dart";
+    return DartBundle.message("file.type.description.dart");
   }
 
   @NotNull

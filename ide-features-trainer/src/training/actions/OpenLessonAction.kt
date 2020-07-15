@@ -34,13 +34,13 @@ import training.learn.lesson.LessonManager
 import training.learn.lesson.LessonProcessor
 import training.learn.lesson.XmlLesson
 import training.learn.lesson.kimpl.KLesson
-import training.learn.lesson.kimpl.LessonContext
+import training.learn.lesson.kimpl.LessonContextImpl
 import training.learn.lesson.kimpl.LessonExecutor
 import training.learn.lesson.listeners.NextLessonListener
 import training.learn.lesson.listeners.StatisticLessonListener
 import training.project.ProjectUtils
 import training.ui.LearnToolWindowFactory
-import training.ui.UiManager
+import training.ui.LearningUiManager
 import training.util.findLanguageByID
 import java.awt.FontFormatException
 import java.io.IOException
@@ -74,18 +74,28 @@ class OpenLessonAction(val lesson: Lesson) : AnAction(lesson.name) {
   private fun openLesson(projectWhereToStartLesson: Project, lesson: Lesson) {
     LOG.debug("${projectWhereToStartLesson.name}: start openLesson method")
     try {
+      // Stop the current lesson (if any)
+      LessonManager.instance.stopLesson()
+
+      val activeToolWindow = LearningUiManager.activeToolWindow
+      if (activeToolWindow != null && activeToolWindow.project != projectWhereToStartLesson) {
+        // maybe we need to add some confirmation dialog?
+        activeToolWindow.setModulesPanel()
+      }
+      LearningUiManager.activeToolWindow = LearnToolWindowFactory.learnWindowPerProject[projectWhereToStartLesson]
+
       val langSupport = LangManager.getInstance().getLangSupport() ?: throw Exception("Language for learning plugin is not defined")
       if (lesson.isOpen) throw LessonIsOpenedException(lesson.name + " is opened")
 
       val vf: VirtualFile?
-      var learnProject = CourseManager.instance.learnProject
+      var learnProject = LearningUiManager.learnProject
       if (learnProject != null && langSupport.defaultProjectName != learnProject.name) {
         learnProject = null // We are in the project from another course
       }
       LOG.debug("${projectWhereToStartLesson.name}: trying to get cached LearnProject ${learnProject != null}")
       if (learnProject == null) learnProject = findLearnProjectInOpenedProjects(langSupport)
       LOG.debug("${projectWhereToStartLesson.name}: trying to find LearnProject in opened projects ${learnProject != null}")
-      if (learnProject != null) CourseManager.instance.learnProject = learnProject
+      if (learnProject != null) LearningUiManager.learnProject = learnProject
 
       if (lesson.module.moduleType == ModuleType.SCRATCH) {
         LOG.debug("${projectWhereToStartLesson.name}: scratch based lesson")
@@ -97,30 +107,19 @@ class OpenLessonAction(val lesson: Lesson) : AnAction(lesson.name) {
         if ((learnProject == null || learnProject.isDisposed) && projectWhereToStartLesson.name == langSupport.defaultProjectName) {
           LOG.debug(
             "${projectWhereToStartLesson.name}: 0. learnProject is null but the current project (${projectWhereToStartLesson.name}) is LearnProject then just getFileInLearnProject")
-          CourseManager.instance.learnProject = projectWhereToStartLesson
+          LearningUiManager.learnProject = projectWhereToStartLesson
           vf = getFileInLearnProject(lesson)
           //1. learnProject == null and current project has different name then initLearnProject and register post startup open lesson
         }
-        else if (learnProject == null && projectWhereToStartLesson.name != langSupport.defaultProjectName) {
-          LOG.debug(
-            "${projectWhereToStartLesson.name}: 1. learnProject is null and current project ((${projectWhereToStartLesson.name})) has different name. Start LearnProject and register post startup open lesson")
-          val myLearnProject = initLearnProject(projectWhereToStartLesson) ?: return
-          // in case of user aborted to create a LearnProject
-          LOG.debug("${projectWhereToStartLesson.name}: 1. ... LearnProject has been started")
-          openLessonWhenLearnProjectStart(lesson, myLearnProject)
-          LOG.debug("${projectWhereToStartLesson.name}: 1. ... open lesson when learn project has been started")
+        else if (learnProject == null || learnProject.isDisposed) {
+          LOG.debug("${projectWhereToStartLesson.name}: 1. learnProject is null or disposed")
+          initLearnProject(projectWhereToStartLesson) {
+            LOG.debug("${projectWhereToStartLesson.name}: 1. ... LearnProject has been started")
+            openLessonWhenLearnProjectStart(lesson, it)
+            LOG.debug("${projectWhereToStartLesson.name}: 1. ... open lesson when learn project has been started")
+          }
           return
           //2. learnProject != null and learnProject is disposed then reinitProject and getFileInLearnProject
-        }
-        else if (learnProject!!.isDisposed) {
-          LOG.debug("${projectWhereToStartLesson.name}: 2. LearnProject is disposed. Start learn project again")
-          val myLearnProject = initLearnProject(projectWhereToStartLesson) ?: return
-          LOG.debug("${projectWhereToStartLesson.name}: 2. ... LearnProject has been started")
-          // in case of user aborted to create a LearnProject
-          openLessonWhenLearnProjectStart(lesson, myLearnProject)
-          LOG.debug("${projectWhereToStartLesson.name}: 2. ... open lesson when learn project has been started")
-          return
-          //3. learnProject != null and learnProject is opened but not focused then focus Project and getFileInLearnProject
         }
         else if (learnProject.isOpen && projectWhereToStartLesson != learnProject) {
           LOG.debug("${projectWhereToStartLesson.name}: 3. LearnProject is opened but not focused. Ask user to focus to LearnProject")
@@ -140,13 +139,13 @@ class OpenLessonAction(val lesson: Lesson) : AnAction(lesson.name) {
 
       LOG.debug("${projectWhereToStartLesson.name}: VirtualFile for lesson has been created/found")
       val currentProject =
-        if (lesson.module.moduleType != ModuleType.SCRATCH) CourseManager.instance.learnProject!!.also {
+        if (lesson.module.moduleType != ModuleType.SCRATCH) LearningUiManager.learnProject!!.also {
           // close all tabs in the currently opened learning project
           ProjectUtils.closeAllEditorsInProject(it)
         }
         else projectWhereToStartLesson
 
-      if (lesson.module.moduleType != ModuleType.SCRATCH || CourseManager.instance.learnProject == projectWhereToStartLesson) {
+      if (lesson.module.moduleType != ModuleType.SCRATCH || LearningUiManager.learnProject == projectWhereToStartLesson) {
         // do not change view environment for scratch lessons in user project
         hideOtherViews(projectWhereToStartLesson)
       }
@@ -157,7 +156,7 @@ class OpenLessonAction(val lesson: Lesson) : AnAction(lesson.name) {
 
       //open next lesson if current is passed
       LOG.debug("${projectWhereToStartLesson.name}: Set lesson view")
-      UiManager.setLessonView()
+      LearningUiManager.activeToolWindow?.setLearnPanel(lesson)
       LOG.debug("${projectWhereToStartLesson.name}: XmlLesson onStart()")
       lesson.onStart()
 
@@ -189,10 +188,6 @@ class OpenLessonAction(val lesson: Lesson) : AnAction(lesson.name) {
       LOG.debug("${projectWhereToStartLesson.name}: 2. Set the focus on this editor")
       FileEditorManager.getInstance(projectWhereToStartLesson).openEditor(OpenFileDescriptor(projectWhereToStartLesson, vf), true)
 
-      //3. update tool window
-      LOG.debug("${projectWhereToStartLesson.name}: 3. Update tool window")
-      UiManager.clearLearnPanels()
-
       //4. Process lesson
       LOG.debug("${projectWhereToStartLesson.name}: 4. Process lesson")
       when (lesson) {
@@ -223,10 +218,10 @@ class OpenLessonAction(val lesson: Lesson) : AnAction(lesson.name) {
 
   private fun processDslLesson(lesson: KLesson, textEditor: TextEditor, projectWhereToStartLesson: Project) {
     val executor = LessonExecutor(lesson, textEditor.editor, projectWhereToStartLesson)
-    val lessonContext = LessonContext(lesson, textEditor.editor, projectWhereToStartLesson, executor)
+    val lessonContext = LessonContextImpl(executor)
     LessonManager.instance.initDslLesson(textEditor.editor, lesson, executor)
     lesson.lessonContent(lessonContext)
-    executor.processNextTask()
+    executor.processNextTask(0)
   }
 
   private fun hideOtherViews(project: Project) {
@@ -255,32 +250,24 @@ class OpenLessonAction(val lesson: Lesson) : AnAction(lesson.name) {
   }
 
   private fun openLearnProjectFromWelcomeScreen(projectToClose: Project?, lessonToOpen: Lesson) {
-    val project = initLearnProject(projectToClose)!!
-    if (project.isOpen) {
-      showModules(project)
-      openLessonWhenLearnProjectStart(lessonToOpen, project)
-      return
-    }
-    StartupManager.getInstance(project).registerPostStartupActivity {
-      hideOtherViews(project)
-      showModules(project)
-      openLessonWhenLearnProjectStart(lessonToOpen, project)
+    initLearnProject(projectToClose) { project ->
+      if (project.isOpen) {
+        showModules(project)
+        openLessonWhenLearnProjectStart(lessonToOpen, project)
+      }
+      else {
+        StartupManager.getInstance(project).registerPostStartupActivity {
+          hideOtherViews(project)
+          showModules(project)
+          openLessonWhenLearnProjectStart(lessonToOpen, project)
+        }
+      }
     }
   }
 
   private fun showModules(project: Project) {
     val toolWindowManager = ToolWindowManager.getInstance(project)
-    val learnToolWindow = toolWindowManager.getToolWindow(LearnToolWindowFactory.LEARN_TOOL_WINDOW)
-    if (learnToolWindow != null) {
-      learnToolWindow.show(null)
-      try {
-        UiManager.setModulesView()
-      }
-      catch (e: Exception) {
-        LOG.error(e)
-      }
-
-    }
+    toolWindowManager.getToolWindow(LearnToolWindowFactory.LEARN_TOOL_WINDOW)?.show(null)
   }
 
   private fun openLessonWhenLearnProjectStart(lesson: Lesson, myLearnProject: Project) {
@@ -342,9 +329,9 @@ class OpenLessonAction(val lesson: Lesson) : AnAction(lesson.name) {
     val function = object : Computable<VirtualFile> {
 
       override fun compute(): VirtualFile {
-        val learnProject = CourseManager.instance.learnProject!!
+        val learnProject = LearningUiManager.learnProject!!
 
-        val existedFile = lesson.existedFile
+        val existedFile = lesson.existedFile ?: lesson.module.primaryLanguage.projectSandboxRelativePath
         val manager = ProjectRootManager.getInstance(learnProject)
         if (existedFile != null) {
           val root = manager.contentRoots[0]
@@ -384,30 +371,27 @@ class OpenLessonAction(val lesson: Lesson) : AnAction(lesson.name) {
     return vf
   }
 
-  private fun initLearnProject(projectToClose: Project?): Project? {
+  private fun initLearnProject(projectToClose: Project?, postInitCallback: (learnProject: Project) -> Unit) {
     val langSupport = LangManager.getInstance().getLangSupport() ?: throw Exception("Language for learning plugin is not defined")
     //if projectToClose is open
-    var myLearnProject = findLearnProjectInOpenedProjects(langSupport)
-    if (myLearnProject != null) return myLearnProject
+    findLearnProjectInOpenedProjects(langSupport)?.let {
+      postInitCallback(it)
+      return
+    }
 
     if (!ApplicationManager.getApplication().isUnitTestMode && projectToClose != null)
       if (!NewLearnProjectUtil.showDialogOpenLearnProject(projectToClose))
-        return null //if user abort to open lesson in a new Project
+        return //if user abort to open lesson in a new Project
     try {
-      myLearnProject = NewLearnProjectUtil.createLearnProject(projectToClose, langSupport)
+      NewLearnProjectUtil.createLearnProject(projectToClose, langSupport) { learnProject ->
+        langSupport.applyToProjectAfterConfigure().invoke(learnProject)
+        LearningUiManager.learnProject = learnProject
+        postInitCallback(learnProject)
+      }
     }
     catch (e: IOException) {
       LOG.error(e)
-      return null
     }
-
-    langSupport.applyToProjectAfterConfigure().invoke(myLearnProject)
-
-    CourseManager.instance.learnProject = myLearnProject
-
-    assert(CourseManager.instance.learnProject != null)
-
-    return myLearnProject
   }
 
   private fun findLearnProjectInOpenedProjects(langSupport: LangSupport): Project? {

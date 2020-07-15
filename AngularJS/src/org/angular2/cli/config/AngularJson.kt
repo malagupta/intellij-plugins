@@ -35,6 +35,9 @@ internal class AngularJson {
 }
 
 internal class AngularJsonProject {
+  @JsonProperty("projectType")
+  val projectType: AngularProject.AngularProjectType? = null
+
   @JsonProperty("name")
   val name: String? = null
 
@@ -96,6 +99,10 @@ internal open class AngularJsonBuildOptionsBase {
 
   @JsonProperty("index")
   val index: String? = null
+
+  @JsonProperty("tsConfig")
+  @JsonAlias("tsconfig")
+  val tsConfig: String? = null
 
   @JsonProperty("styles")
   @JsonDeserialize(using = StringOrObjectWithInputDeserializer::class)

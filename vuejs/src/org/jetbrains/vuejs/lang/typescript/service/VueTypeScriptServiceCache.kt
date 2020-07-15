@@ -3,7 +3,6 @@ package org.jetbrains.vuejs.lang.typescript.service
 
 import com.intellij.lang.javascript.DialectDetector
 import com.intellij.lang.typescript.compiler.languageService.protocol.TypeScriptLanguageServiceCache
-import com.intellij.openapi.editor.Document
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiManager
@@ -11,12 +10,6 @@ import org.jetbrains.vuejs.index.findModule
 import org.jetbrains.vuejs.lang.html.VueFileType
 
 class VueTypeScriptServiceCache(project: Project) : TypeScriptLanguageServiceCache(project) {
-  override fun getDocumentText(virtualFile: VirtualFile, document: Document): CharSequence {
-    return if (virtualFile.fileType != VueFileType.INSTANCE) {
-      super.getDocumentText(virtualFile, document)
-    }
-    else getModifiedVueDocumentText(myProject, document) ?: ""
-  }
 
   override fun getFilesToClose(currentChangedFiles: MutableMap<VirtualFile, Long>): Set<VirtualFile> {
     val filesToClose: Set<VirtualFile> = super.getFilesToClose(currentChangedFiles)

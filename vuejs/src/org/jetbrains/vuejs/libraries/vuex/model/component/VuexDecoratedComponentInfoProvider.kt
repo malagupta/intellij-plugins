@@ -2,12 +2,18 @@
 package org.jetbrains.vuejs.libraries.vuex.model.component
 
 import com.intellij.lang.javascript.psi.JSRecordType
+import com.intellij.lang.javascript.psi.JSType
 import com.intellij.lang.javascript.psi.ecmal4.JSClass
 import com.intellij.psi.PsiElement
 import org.jetbrains.vuejs.codeInsight.findDecorator
+import org.jetbrains.vuejs.libraries.vuex.VuexUtils.ACTION_DEC
+import org.jetbrains.vuejs.libraries.vuex.VuexUtils.GETTER_DEC
+import org.jetbrains.vuejs.libraries.vuex.VuexUtils.MUTATION_DEC
+import org.jetbrains.vuejs.libraries.vuex.VuexUtils.STATE_DEC
+import org.jetbrains.vuejs.libraries.vuex.VuexUtils.VUEX_DEC_MAPPERS
 import org.jetbrains.vuejs.model.VueComputedProperty
 import org.jetbrains.vuejs.model.VueMethod
-import org.jetbrains.vuejs.model.VueNamedSymbol
+import org.jetbrains.vuejs.model.VueProperty
 import org.jetbrains.vuejs.model.source.VueContainerInfoProvider
 import org.jetbrains.vuejs.model.source.VueContainerInfoProvider.VueContainerInfo
 
@@ -25,7 +31,7 @@ class VuexDecoratedComponentInfoProvider : VueContainerInfoProvider.VueDecorated
         .asRecordType()
         .typeMembers
         .forEach { member ->
-          val decorator = findDecorator(member, DECS)
+          val decorator = findDecorator(member, VUEX_DEC_MAPPERS)
           when (decorator?.decoratorName) {
             STATE_DEC,
             GETTER_DEC -> if (member is JSRecordType.PropertySignature) {
@@ -42,27 +48,18 @@ class VuexDecoratedComponentInfoProvider : VueContainerInfoProvider.VueDecorated
       this.methods = methods
     }
 
-    companion object {
-
-      private const val STATE_DEC = "State"
-      private const val GETTER_DEC = "Getter"
-      private const val ACTION_DEC = "Action"
-      private const val MUTATION_DEC = "Mutation"
-
-      private val DECS = setOf(STATE_DEC, GETTER_DEC, ACTION_DEC, MUTATION_DEC)
-    }
-
-    private abstract class VuexMappedSymbol(protected val member: JSRecordType.PropertySignature)
-      : VueNamedSymbol {
+    private abstract class VuexMappedProperty(protected val member: JSRecordType.PropertySignature)
+      : VueProperty {
       override val source: PsiElement? get() = member.memberSource.singleElement
+      override val jsType: JSType? get() = member.jsType
       override val name: String = member.memberName
     }
 
     private class VuexMappedComputedProperty(member: JSRecordType.PropertySignature)
-      : VuexMappedSymbol(member), VueComputedProperty
+      : VuexMappedProperty(member), VueComputedProperty
 
     private class VuexMappedMethod(member: JSRecordType.PropertySignature)
-      : VuexMappedSymbol(member), VueMethod
+      : VuexMappedProperty(member), VueMethod
 
   }
 }

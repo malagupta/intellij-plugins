@@ -10,13 +10,9 @@ import com.intellij.lang.javascript.psi.ecma6.TypeScriptClass;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
-import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.testIntegration.TestFinderHelper;
 import com.intellij.util.containers.ContainerUtil;
-import org.angular2.entities.Angular2Declaration;
-import org.angular2.entities.Angular2EntitiesProvider;
-import org.angular2.entities.Angular2EntityUtils;
-import org.angular2.entities.Angular2Module;
+import org.angular2.entities.*;
 import org.angular2.entities.source.Angular2SourceModule;
 import org.angular2.lang.Angular2Bundle;
 import org.jetbrains.annotations.NotNull;
@@ -29,9 +25,8 @@ import static org.angular2.entities.Angular2EntityUtils.renderEntityList;
 
 public class AngularMissingOrInvalidDeclarationInModuleInspection extends LocalInspectionTool {
 
-  @NotNull
   @Override
-  public PsiElementVisitor buildVisitor(@NotNull ProblemsHolder holder, boolean isOnTheFly) {
+  public @NotNull PsiElementVisitor buildVisitor(@NotNull ProblemsHolder holder, boolean isOnTheFly) {
     return new JSElementVisitor() {
 
       @Override
@@ -42,11 +37,14 @@ public class AngularMissingOrInvalidDeclarationInModuleInspection extends LocalI
                                                     Angular2Declaration.class);
           if (declaration != null) {
             Collection<Angular2Module> modules = declaration.getAllModules();
-            PsiElement classIdentifier = notNull(doIfNotNull(PsiTreeUtil.getContextOfType(decorator, TypeScriptClass.class),
+            if (Angular2FrameworkHandler.EP_NAME.extensions().anyMatch(h -> h.suppressModuleInspectionErrors(modules, declaration))) {
+              return;
+            }
+            PsiElement classIdentifier = notNull(doIfNotNull(getClassForDecoratorElement(decorator),
                                                              TypeScriptClass::getNameIdentifier), decorator);
             if (modules.isEmpty()) {
               holder.registerProblem(classIdentifier,
-                                     Angular2Bundle.message("angular.inspection.decorator.not-declared-in-NgModule",
+                                     Angular2Bundle.message("angular.inspection.invalid-declaration-in-module.message.not-declared",
                                                             Angular2EntityUtils.getEntityClassName(decorator)),
                                      allSourceDeclarationsResolved(decorator.getProject())
                                      ? ProblemHighlightType.GENERIC_ERROR_OR_WARNING
@@ -54,7 +52,7 @@ public class AngularMissingOrInvalidDeclarationInModuleInspection extends LocalI
             }
             else if (modules.size() > 1) {
               holder.registerProblem(classIdentifier,
-                                     Angular2Bundle.message("angular.inspection.decorator.declared-in-many-NgModules",
+                                     Angular2Bundle.message("angular.inspection.invalid-declaration-in-module.message.declared-in-many",
                                                             Angular2EntityUtils.getEntityClassName(decorator),
                                                             renderEntityList(modules)));
             }

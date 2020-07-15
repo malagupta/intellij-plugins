@@ -43,6 +43,7 @@ import static com.intellij.openapi.util.Pair.pair;
 import static com.intellij.util.containers.ContainerUtil.prepend;
 import static com.intellij.util.containers.ContainerUtil.sorted;
 import static java.util.Arrays.asList;
+import static org.angular2.modules.Angular2TestModule.*;
 import static org.angularjs.AngularTestUtil.findOffsetBySignature;
 
 public class InjectionsTest extends Angular2CodeInsightFixtureTestCase {
@@ -168,8 +169,9 @@ public class InjectionsTest extends Angular2CodeInsightFixtureTestCase {
   public void testPrivateMembersOrder() {
     myFixture.configureByFiles("event_private.html", "event_private.ts", "package.json");
     myFixture.completeBasic();
-    assertEquals("Private members should be sorted after public ones", myFixture.getLookupElementStrings(),
-                 ContainerUtil.newArrayList("callSecuredApi", "callZ", "_callApi", "callA", "callAnonymousApi"));
+    assertEquals("Private members should be sorted after public ones",
+                 ContainerUtil.newArrayList("callSecuredApi", "callZ", "_callApi", "callA", "callAnonymousApi"),
+                 myFixture.getLookupElementStrings());
   }
 
   public void testResolutionWithDifferentTemplateName() {
@@ -204,6 +206,8 @@ public class InjectionsTest extends Angular2CodeInsightFixtureTestCase {
   public void testAngularCliLibrary() {
     myFixture.copyDirectoryToProject("angular-cli-lib", ".");
 
+    configureCopy(myFixture, ANGULAR_L10N_4_2_0);
+
     // Add "dist" folder to excludes
     ModuleRootModificationUtil.updateModel(getModule(), model -> {
       ExcludeFolder folder = model.getContentEntries()[0].addExcludeFolder(
@@ -233,7 +237,7 @@ public class InjectionsTest extends Angular2CodeInsightFixtureTestCase {
   public void testCustomContextProvider() {
     Disposable disposable = Disposer.newDisposable();
     Angular2ContextProvider.ANGULAR_CONTEXT_PROVIDER_EP
-      .getPoint(null)
+      .getPoint()
       .registerExtension(psiDir -> CachedValueProvider.Result.create(true, ModificationTracker.EVER_CHANGED),
                          disposable);
     myFixture.configureByFiles("inner/event.html", "inner/package.json", "inner/event.ts");
@@ -267,8 +271,8 @@ public class InjectionsTest extends Angular2CodeInsightFixtureTestCase {
   }
 
   public void testCompletionOnTemplateReferenceVariable() {
-    myFixture.copyDirectoryToProject("node_modules", "./node_modules");
-    myFixture.configureByFiles("ref-var.html", "ref-var.ts", "package.json");
+    configureCopy(myFixture, ANGULAR_CORE_4_0_0);
+    myFixture.configureByFiles("ref-var.html", "ref-var.ts");
     List<String> defaultProps = asList("constructor", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable",
                                        "toLocaleString", "toString", "valueOf");
     for (Pair<String, List<String>> check : asList(

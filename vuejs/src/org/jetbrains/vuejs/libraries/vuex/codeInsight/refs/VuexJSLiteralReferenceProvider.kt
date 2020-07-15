@@ -12,21 +12,28 @@ import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.contextOfType
 import com.intellij.util.ProcessingContext
 import com.intellij.util.castSafelyTo
+import org.jetbrains.annotations.Nullable
 import org.jetbrains.vuejs.codeInsight.getTextIfLiteral
 import org.jetbrains.vuejs.context.isVueContext
-import org.jetbrains.vuejs.libraries.vuex.VuexUtils
 import org.jetbrains.vuejs.libraries.vuex.VuexUtils.ACTION_DEC
 import org.jetbrains.vuejs.libraries.vuex.VuexUtils.COMMIT
+import org.jetbrains.vuejs.libraries.vuex.VuexUtils.CONTEXT
 import org.jetbrains.vuejs.libraries.vuex.VuexUtils.DISPATCH
+import org.jetbrains.vuejs.libraries.vuex.VuexUtils.GETTERS
 import org.jetbrains.vuejs.libraries.vuex.VuexUtils.GETTER_DEC
 import org.jetbrains.vuejs.libraries.vuex.VuexUtils.MAP_ACTIONS
 import org.jetbrains.vuejs.libraries.vuex.VuexUtils.MAP_GETTERS
 import org.jetbrains.vuejs.libraries.vuex.VuexUtils.MAP_MUTATIONS
 import org.jetbrains.vuejs.libraries.vuex.VuexUtils.MAP_STATE
 import org.jetbrains.vuejs.libraries.vuex.VuexUtils.MUTATION_DEC
+import org.jetbrains.vuejs.libraries.vuex.VuexUtils.PROP_ROOT
+import org.jetbrains.vuejs.libraries.vuex.VuexUtils.PROP_TYPE
+import org.jetbrains.vuejs.libraries.vuex.VuexUtils.ROOT_GETTERS
+import org.jetbrains.vuejs.libraries.vuex.VuexUtils.ROOT_STATE
+import org.jetbrains.vuejs.libraries.vuex.VuexUtils.STATE
 import org.jetbrains.vuejs.libraries.vuex.VuexUtils.STATE_DEC
-import org.jetbrains.vuejs.libraries.vuex.VuexUtils.getNamespaceFromMapper
-import org.jetbrains.vuejs.libraries.vuex.model.store.VuexContainer
+import org.jetbrains.vuejs.libraries.vuex.VuexUtils.isActionContextParameter
+import org.jetbrains.vuejs.libraries.vuex.model.store.*
 
 abstract class VuexJSLiteralReferenceProvider : PsiReferenceProvider() {
 
@@ -34,19 +41,49 @@ abstract class VuexJSLiteralReferenceProvider : PsiReferenceProvider() {
 
     val VUEX_INDEXED_ACCESS_REF_PROVIDER = object : VuexJSLiteralReferenceProvider() {
       override fun getSettings(element: PsiElement): ReferenceProviderSettings? {
-        val accessName = element.context.castSafelyTo<JSIndexedPropertyAccessExpression>()
-          ?.qualifier
-          ?.castSafelyTo<JSReferenceExpression>()
-          ?.referenceName
-        val accessor = when (accessName) {
-          VuexUtils.GETTERS, VuexUtils.ROOT_GETTERS -> VuexContainer::getters
-          VuexUtils.STATE, VuexUtils.ROOT_STATE -> VuexContainer::state
+        val reference = element.context.castSafelyTo<JSIndexedPropertyAccessExpression>()
+                          ?.qualifier
+                          ?.castSafelyTo<JSReferenceExpression>()
+                        ?: return null
+        val referenceName = reference.referenceName
+        val accessor = when (referenceName) {
+          GETTERS, ROOT_GETTERS -> VuexContainer::getters
+          STATE, ROOT_STATE -> VuexContainer::state
           else -> return null
         }
+
+        val namespace = computeNamespace(referenceName, reference)
+                        ?: return null
+
         return object : ReferenceProviderSettings {
           override val symbolAccessor = accessor
-          override val baseNamespaceProvider: NamespaceProvider = { "" }
+          override val baseNamespace: VuexStoreNamespace = namespace
           override val isSoft: Boolean = true
+          override val includeMembers: Boolean = referenceName != STATE && referenceName != ROOT_STATE
+        }
+      }
+
+      private fun computeNamespace(referenceName: String?,
+                                   reference: JSReferenceExpression): VuexStoreNamespace? {
+        referenceName ?: return null
+        when (val firstQualifier = reference.qualifier) {
+          null -> {
+            // function parameter
+            return JSStubBasedPsiTreeUtil.resolveLocally(referenceName, reference)
+              .castSafelyTo<JSParameter>()
+              ?.let { getNamespaceForGettersOrState(it, referenceName) }
+          }
+          is JSReferenceExpression -> {
+            if (referenceName == ROOT_STATE || referenceName == ROOT_GETTERS) {
+              return VuexStaticNamespace.EMPTY
+            }
+            // action context or global namespace
+            return getNamespaceIfActionContextParam(firstQualifier)
+                   ?: VuexStaticNamespace.EMPTY
+          }
+          else -> {
+            return null
+          }
         }
       }
     }
@@ -64,9 +101,7 @@ abstract class VuexJSLiteralReferenceProvider : PsiReferenceProvider() {
         }
         return object : ReferenceProviderSettings {
           override val symbolAccessor = accessor
-          override val baseNamespaceProvider: NamespaceProvider = {
-            getNamespaceFromMapper(it, true)
-          }
+          override val baseNamespace: VuexStoreNamespace = VuexHelpersContextNamespace(true)
           override val isSoft: Boolean = false
         }
       }
@@ -90,11 +125,18 @@ abstract class VuexJSLiteralReferenceProvider : PsiReferenceProvider() {
         }
         return object : ReferenceProviderSettings {
           override val symbolAccessor = accessor
-          override val baseNamespaceProvider: NamespaceProvider = {
-            getNamespaceFromMapper(it, false)
-          }
+          override val baseNamespace: VuexStoreNamespace = VuexHelpersContextNamespace(false)
           override val isSoft: Boolean = false
         }
+      }
+    }
+
+    val VUEX_DISPATCH_COMMIT_OBJECT_ARG_REF_PROVIDER = object : VuexJSLiteralReferenceProvider() {
+      override fun getSettings(element: PsiElement): ReferenceProviderSettings? {
+        return element.context?.castSafelyTo<JSProperty>()
+          ?.takeIf { it.name == PROP_TYPE }
+          ?.context
+          ?.let { VUEX_CALL_ARGUMENT_REF_PROVIDER.getSettings(it) }
       }
     }
 
@@ -107,43 +149,99 @@ abstract class VuexJSLiteralReferenceProvider : PsiReferenceProvider() {
           COMMIT -> VuexContainer::mutations
           else -> null
         }
-        val namespaceProvider: NamespaceProvider
-        if (accessor !== null && functionRef.qualifier === null) {
-          // Ensure we are within a correct context
-          val mapperName = JSStubBasedPsiTreeUtil.resolveLocally(functionName, functionRef)
-            ?.castSafelyTo<JSParameter>()
-            ?.contextOfType(JSFunction::class)
-            ?.let {
-              it as? JSProperty ?: it.context as? JSProperty
-            }
-            ?.context?.context
-            ?.let { getFunctionReference(it) }
-            ?.referenceName
-          if ((functionName == DISPATCH && mapperName == MAP_ACTIONS)
-              || (functionName == COMMIT && mapperName == MAP_MUTATIONS)) {
-            namespaceProvider = { psiElement ->
-              JSStubBasedPsiTreeUtil.resolveLocally(functionName, psiElement)
-                ?.let { getNamespaceFromMapper(it, false) }
-              ?: ""
-            }
-          }
-          else return null
-        }
-        else {
-          namespaceProvider = { "" }
-        }
+        val namespace = computeNamespace(accessor, functionRef, functionName, element)
+                        ?: return null
         return object : ReferenceProviderSettings {
           override val symbolAccessor = accessor
-          override val baseNamespaceProvider: NamespaceProvider = namespaceProvider
-          override val isSoft: Boolean = true
+          override val baseNamespace: VuexStoreNamespace = namespace
+          override val isSoft: Boolean = accessor != null
         }
+      }
+
+      private fun computeNamespace(accessor: VuexSymbolAccessor?,
+                                   functionRef: JSReferenceExpression,
+                                   functionName: String,
+                                   element: PsiElement): VuexStoreNamespace? {
+        if (accessor !== null) {
+          val qualifier = functionRef.qualifier
+          if (qualifier === null) {
+            // Ensure we are within a correct context
+            val param = JSStubBasedPsiTreeUtil.resolveLocally(functionName, functionRef)
+              ?.castSafelyTo<JSParameter>()
+            if (param?.context is JSDestructuringShorthandedProperty) {
+              if (isPossiblyStoreActionContextParam(param)) {
+                if (isRootCall(functionName, element))
+                  return VuexStaticNamespace.EMPTY
+                else
+                  return VuexStoreActionContextNamespace()
+              }
+            }
+            else {
+              if (param?.contextOfType(JSFunction::class)
+                  ?.let {
+                    it as? JSProperty ?: it.context as? JSProperty
+                  }
+                  ?.context?.context
+                  ?.let { getFunctionReference(it) }
+                  ?.referenceName
+                  ?.takeIf {
+                    (functionName == DISPATCH && it == MAP_ACTIONS)
+                    || (functionName == COMMIT && it == MAP_MUTATIONS)
+                  } != null) {
+                return object : VuexHelpersContextNamespace(false) {
+                  override fun get(element: PsiElement): String =
+                    JSStubBasedPsiTreeUtil.resolveLocally(functionName, element)?.let { super.get(it) } ?: ""
+                }
+              }
+              return null
+            }
+          }
+          else {
+            return qualifier.castSafelyTo<JSReferenceExpression>()
+              ?.let {
+                if (!isRootCall(functionName, element)) {
+                  getNamespaceIfActionContextParam(it) ?: VuexStaticNamespace.EMPTY
+                }
+                else {
+                  VuexStaticNamespace.EMPTY
+                }
+              }
+          }
+        }
+        else {
+          return VuexStaticNamespace.EMPTY
+        }
+        return null
       }
     }
 
+    private fun getNamespaceIfActionContextParam(contextReferenceExpression: JSReferenceExpression): VuexStoreNamespace? =
+      contextReferenceExpression.takeIf { it.qualifier == null }
+        ?.referenceName
+        ?.takeIf { it == CONTEXT }
+        ?.let { JSStubBasedPsiTreeUtil.resolveLocally(it, contextReferenceExpression) }
+        ?.takeIf { isActionContextParameter(it) && isPossiblyStoreContext(it) }
+        ?.let {
+          VuexStoreActionContextNamespace()
+        }
+
+    private fun isRootCall(functionName: @Nullable String,
+                           element: PsiElement): Boolean =
+      (functionName == DISPATCH || functionName == COMMIT)
+      && element.contextOfType(JSCallExpression::class)
+        ?.arguments
+        ?.takeIf { it.getOrNull(0) == element }
+        ?.getOrNull(if (element is JSObjectLiteralExpression) 1 else 2)
+        ?.castSafelyTo<JSObjectLiteralExpression>()
+        ?.findProperty(PROP_ROOT)
+        ?.value
+        ?.castSafelyTo<JSLiteralExpression>()
+        ?.getExpressionKind(false) == JSLiteralExpressionKind.TRUE
+
     fun getFunctionReference(callContext: PsiElement?): JSReferenceExpression? {
       return callContext?.let {
-          if (it is JSArgumentList) it.context else it
-        }
+        if (it is JSArgumentList) it.context else it
+      }
         ?.castSafelyTo<JSCallExpression>()
         ?.methodExpression
         ?.castSafelyTo<JSReferenceExpression>()
@@ -158,18 +256,24 @@ abstract class VuexJSLiteralReferenceProvider : PsiReferenceProvider() {
       val settings = getSettings(element)
       if (settings != null && isVueContext(element)) {
         var lastIndex = 0
-        var index = text.indexOf('/')
+        var index = if (settings.includeMembers) text.indexOf('/') else -1
         val result = mutableListOf<PsiReference>()
-        val accessor = settings.symbolAccessor
+
+        fun addReference(start: Int, end: Int) {
+          if (start < end) {
+            // The actual range in the text is offset by 1 due to quotes in the quoted literal
+            result.add(VuexStoreSymbolStringReference(
+              element, TextRange(start + 1, end + 1), settings.symbolAccessor, text.substring(0, end),
+              end == text.length, settings.baseNamespace, settings.isSoft, settings.includeMembers))
+          }
+        }
+
         while (index > 0) {
-          result.add(VuexStoreSymbolStringReference(element, TextRange(lastIndex, index).shiftRight(1), accessor, text.substring(0, index),
-                                                    false, settings.baseNamespaceProvider, soft = settings.isSoft))
+          addReference(lastIndex, index)
           lastIndex = index + 1
           index = text.indexOf('/', lastIndex)
         }
-
-        result.add(VuexStoreSymbolStringReference(element, TextRange(lastIndex, text.length).shiftRight(1), accessor, text,
-                                                  true, settings.baseNamespaceProvider, settings.isSoft))
+        addReference(lastIndex, text.length)
         return result.toTypedArray()
       }
     }
@@ -179,8 +283,9 @@ abstract class VuexJSLiteralReferenceProvider : PsiReferenceProvider() {
 
   interface ReferenceProviderSettings {
     val symbolAccessor: VuexSymbolAccessor?
-    val baseNamespaceProvider: NamespaceProvider
+    val baseNamespace: VuexStoreNamespace
     val isSoft: Boolean
+    val includeMembers: Boolean get() = true
   }
 
 }

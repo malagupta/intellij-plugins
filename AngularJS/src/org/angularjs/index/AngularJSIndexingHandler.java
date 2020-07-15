@@ -22,10 +22,7 @@ import com.intellij.lang.javascript.psi.stubs.JSImplicitElement;
 import com.intellij.lang.javascript.psi.stubs.JSImplicitElementStructure;
 import com.intellij.lang.javascript.psi.stubs.impl.JSElementIndexingDataImpl;
 import com.intellij.lang.javascript.psi.stubs.impl.JSImplicitElementImpl;
-import com.intellij.lang.javascript.psi.types.JSContext;
-import com.intellij.lang.javascript.psi.types.JSNamedType;
-import com.intellij.lang.javascript.psi.types.JSTypeSource;
-import com.intellij.lang.javascript.psi.types.JSTypeSourceFactory;
+import com.intellij.lang.javascript.psi.types.*;
 import com.intellij.lang.javascript.psi.util.JSTreeUtil;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
@@ -64,10 +61,10 @@ public class AngularJSIndexingHandler extends FrameworkIndexingHandler {
     new HashMap<>();
   private static final Map<String, Function<String, String>> NAME_CONVERTERS = new HashMap<>();
   private static final Map<String, Function<PsiElement, String>> DATA_CALCULATORS = new HashMap<>();
-  private static final Map<String, PairProcessor<JSProperty, JSElementIndexingData>> CUSTOM_PROPERTY_PROCESSORS = new HashMap<>();
-  private static final Map<String, PairProcessor<JSProperty, JSElementIndexingData>> CUSTOM_INDIRECT_PROPERTY_PROCESSORS = new HashMap<>();
-  private final static Map<String, Function<String, List<String>>> POLY_NAME_CONVERTERS = new HashMap<>();
-  private final static Map<String, Processor<JSArgumentList>> ARGUMENT_LIST_CHECKERS = new HashMap<>();
+  private final Map<String, PairProcessor<JSProperty, JSElementIndexingData>> CUSTOM_PROPERTY_PROCESSORS = new HashMap<>();
+  private final Map<String, PairProcessor<JSProperty, JSElementIndexingData>> CUSTOM_INDIRECT_PROPERTY_PROCESSORS = new HashMap<>();
+  private static final Map<String, Function<String, List<String>>> POLY_NAME_CONVERTERS = new HashMap<>();
+  private static final Map<String, Processor<JSArgumentList>> ARGUMENT_LIST_CHECKERS = new HashMap<>();
 
   public static final Set<String> INTERESTING_METHODS = new HashSet<>();
   public static final Set<String> INJECTABLE_METHODS = new HashSet<>();
@@ -139,23 +136,10 @@ public class AngularJSIndexingHandler extends FrameworkIndexingHandler {
     INDEXES.put("agmi", AngularGenericModulesIndex.KEY);
     INDEXES.put("ajtui", AngularTemplateUrlIndex.KEY);
 
-    for (String key : INDEXES.keySet()) {
-      JSImplicitElement.ourUserStringsRegistry.registerUserString(key);
-    }
-
-    CUSTOM_PROPERTY_PROCESSORS.put(COMPONENT, (property, data) -> processScopedProperty(property, data, BINDINGS, true));
-    CUSTOM_INDIRECT_PROPERTY_PROCESSORS.put(DIRECTIVE, (property, data) -> {
-      boolean result = processScopedProperty(property, data, SCOPE, false);
-      return processScopedProperty(property, data, BIND_TO_CONTROLLER, false) || result;
-    });
     NAME_CONVERTERS.put(BINDINGS, NAME_CONVERTERS.get(DIRECTIVE));
     NAME_CONVERTERS.put(SCOPE, NAME_CONVERTERS.get(DIRECTIVE));
     NAME_CONVERTERS.put(BIND_TO_CONTROLLER, NAME_CONVERTERS.get(DIRECTIVE));
 
-    final PairProcessor<JSProperty, JSElementIndexingData> processor = createRouterParametersProcessor();
-    CUSTOM_PROPERTY_PROCESSORS.put(WHEN, processor);
-    CUSTOM_PROPERTY_PROCESSORS.put("otherwise", processor);
-    CUSTOM_PROPERTY_PROCESSORS.put("state", processor);
     // example of nested states https://scotch.io/tutorials/angular-routing-using-ui-router
     POLY_NAME_CONVERTERS.put(STATE, (NotNullFunction<String, List<String>>)dom -> {
       final String[] parts = dom.split("\\.");
@@ -177,6 +161,19 @@ public class AngularJSIndexingHandler extends FrameworkIndexingHandler {
   static final String RESTRICT = "@restrict";
   static final String ELEMENT = "@element";
   private static final String PARAM = "@param";
+
+  public AngularJSIndexingHandler() {
+    CUSTOM_PROPERTY_PROCESSORS.put(COMPONENT, (property, data) -> processScopedProperty(property, data, BINDINGS, true));
+    CUSTOM_INDIRECT_PROPERTY_PROCESSORS.put(DIRECTIVE, (property, data) -> {
+      boolean result = processScopedProperty(property, data, SCOPE, false);
+      return processScopedProperty(property, data, BIND_TO_CONTROLLER, false) || result;
+    });
+
+    final PairProcessor<JSProperty, JSElementIndexingData> processor = createRouterParametersProcessor();
+    CUSTOM_PROPERTY_PROCESSORS.put(WHEN, processor);
+    CUSTOM_PROPERTY_PROCESSORS.put("otherwise", processor);
+    CUSTOM_PROPERTY_PROCESSORS.put("state", processor);
+  }
 
   public static boolean isInjectable(PsiElement context) {
     final JSCallExpression call = PsiTreeUtil.getContextOfType(context, JSCallExpression.class, false, JSBlockStatement.class);
@@ -202,7 +199,7 @@ public class AngularJSIndexingHandler extends FrameworkIndexingHandler {
   }
 
   @Override
-  public JSLiteralImplicitElementProvider createLiteralImplicitElementProvider(@NotNull final String command) {
+  public JSLiteralImplicitElementProvider createLiteralImplicitElementProvider(final @NotNull String command) {
     return new JSLiteralImplicitElementProvider() {
       @Override
       public void fillIndexingData(@NotNull JSLiteralExpression argument,
@@ -286,6 +283,7 @@ public class AngularJSIndexingHandler extends FrameworkIndexingHandler {
     if (methodExpression == null) return false;
 
     final ASTNode referencedNameElement = methodExpression.getLastChildNode();
+    if (referencedNameElement == null) return false;
     final ASTNode qualifierElement = JSReferenceExpressionImpl.getQualifierNode(methodExpression);
     if (qualifierElement == null) return false;
     String referencedName = referencedNameElement.getText();
@@ -295,9 +293,8 @@ public class AngularJSIndexingHandler extends FrameworkIndexingHandler {
            || INJECTABLE_METHODS.contains(referencedName);
   }
 
-  @Nullable
   @Override
-  public JSElementIndexingData processAnyProperty(@NotNull JSProperty property, @Nullable JSElementIndexingData outData) {
+  public @Nullable JSElementIndexingData processAnyProperty(@NotNull JSProperty property, @Nullable JSElementIndexingData outData) {
     final String name = property.getName();
     if (name == null) return outData;
     JSElementIndexingData localOutData;
@@ -342,8 +339,7 @@ public class AngularJSIndexingHandler extends FrameworkIndexingHandler {
     return outData;
   }
 
-  @Nullable
-  private static Trinity<JSCallExpression, Integer, Boolean> findWrappingCall(@NotNull JSProperty property) {
+  private static @Nullable Trinity<JSCallExpression, Integer, Boolean> findWrappingCall(@NotNull JSProperty property) {
     PsiElement current = property.getParent();
     int level = 0;
     boolean immediate = true;
@@ -395,7 +391,7 @@ public class AngularJSIndexingHandler extends FrameworkIndexingHandler {
   }
 
   @Override
-  public JSElementIndexingData processJSDocComment(@NotNull final JSDocComment comment, @Nullable JSElementIndexingData outData) {
+  public JSElementIndexingData processJSDocComment(final @NotNull JSDocComment comment, @Nullable JSElementIndexingData outData) {
     JSDocTag ngdocTag = null;
     JSDocTag nameTag = null;
     for (JSDocTag tag : comment.getTags()) {
@@ -493,14 +489,13 @@ public class AngularJSIndexingHandler extends FrameworkIndexingHandler {
   }
 
 
-  private static void generateNamespace(@NotNull JSLiteralExpression argument,
-                                        @NotNull JSElementIndexingData outData) {
+  private void generateNamespace(@NotNull JSLiteralExpression argument, @NotNull JSElementIndexingData outData) {
     final String namespace = unquote(argument);
     if (namespace == null) return;
     JSQualifiedNameImpl qName = JSQualifiedNameImpl.fromQualifiedName(namespace);
     JSImplicitElementImpl.Builder elementBuilder =
       new JSImplicitElementImpl.Builder(qName, argument)
-        .setType(JSImplicitElement.Type.Class).setUserString(ANGULAR_SYMBOL_INDEX_USER_STRING);
+        .setType(JSImplicitElement.Type.Class).setUserString(this, ANGULAR_SYMBOL_INDEX_USER_STRING);
     final JSImplicitElementImpl implicitElement = elementBuilder.toImplicitElement();
     outData.addImplicitElement(implicitElement);
     // TODO fix
@@ -511,19 +506,19 @@ public class AngularJSIndexingHandler extends FrameworkIndexingHandler {
     //}
   }
 
-  private static void addImplicitElements(@NotNull final JSImplicitElementProvider elementProvider,
-                                          @Nullable final String command,
-                                          @NotNull final StubIndexKey<String, JSImplicitElementProvider> index,
-                                          @Nullable String defaultName,
-                                          @Nullable final String value,
-                                          @NotNull final JSElementIndexingData outData) {
+  private void addImplicitElements(final @NotNull JSImplicitElementProvider elementProvider,
+                                   final @Nullable String command,
+                                   final @NotNull StubIndexKey<String, JSImplicitElementProvider> index,
+                                   @Nullable String defaultName,
+                                   final @Nullable String value,
+                                   final @NotNull JSElementIndexingData outData) {
     if (defaultName == null) return;
     final List<String> keys = INDEXES.getKeysByValue(index);
     assert keys != null && keys.size() == 1;
     final Consumer<JSImplicitElementImpl.Builder> adder = builder -> {
       builder.setType(elementProvider instanceof JSDocComment ? JSImplicitElement.Type.Tag : JSImplicitElement.Type.Class)
         .setTypeString(value);
-      builder.setUserString(keys.get(0));
+      builder.setUserString(this, keys.get(0));
       final JSImplicitElementImpl implicitElement = builder.toImplicitElement();
       outData.addImplicitElement(implicitElement);
     };
@@ -548,7 +543,7 @@ public class AngularJSIndexingHandler extends FrameworkIndexingHandler {
         .setTypeString(value);
       final List<String> symbolKeys = INDEXES.getKeysByValue(AngularSymbolIndex.KEY);
       assert symbolKeys != null && symbolKeys.size() == 1;
-      symbolElementBuilder.setUserString(symbolKeys.get(0));
+      symbolElementBuilder.setUserString(this, symbolKeys.get(0));
       final JSImplicitElementImpl implicitElement2 = symbolElementBuilder.toImplicitElement();
       outData.addImplicitElement(implicitElement2);
     }
@@ -638,6 +633,26 @@ public class AngularJSIndexingHandler extends FrameworkIndexingHandler {
   }
 
   @Override
+  public @Nullable JSNamespace findNamespace(@NotNull JSExpression expression, @Nullable Set<PsiElement> visited) {
+    PsiElement argumentList = expression.getParent();
+    if (!(argumentList instanceof JSArgumentList)) return null;
+    PsiElement callExpression = argumentList.getParent();
+    if (!(callExpression instanceof JSCallExpression)) return null;
+    JSExpression methodExpression = ((JSCallExpression)callExpression).getMethodExpression();
+    if (methodExpression instanceof JSReferenceExpression &&
+        "controller".equals(((JSReferenceExpression)methodExpression).getReferenceName())) {
+      JSExpression[] arguments = ((JSArgumentList)argumentList).getArguments();
+      if (arguments.length >= 2 && arguments[1] == expression && arguments[0] instanceof JSLiteralExpression) {
+        JSQualifiedName name = JSSymbolUtil.getLiteralValueAsQualifiedName((JSLiteralExpression)arguments[0]);
+        if (name != null) {
+          return JSNamedTypeFactory.createNamespace(name, JSContext.INSTANCE, expression);
+        }
+      }
+    }
+    return null;
+  }
+
+  @Override
   public boolean addTypeFromResolveResult(@NotNull JSTypeEvaluator evaluator,
                                           @NotNull JSEvaluateContext context, @NotNull PsiElement resolveResult) {
     if (!AngularIndexUtil.hasAngularJS(resolveResult.getProject())) return false;
@@ -682,7 +697,7 @@ public class AngularJSIndexingHandler extends FrameworkIndexingHandler {
     return collection;
   }
 
-  private static PairProcessor<JSProperty, JSElementIndexingData> createRouterParametersProcessor() {
+  private PairProcessor<JSProperty, JSElementIndexingData> createRouterParametersProcessor() {
     return new PairProcessor<JSProperty, JSElementIndexingData>() {
       @Override
       public boolean process(JSProperty property, JSElementIndexingData outData) {
@@ -726,8 +741,7 @@ public class AngularJSIndexingHandler extends FrameworkIndexingHandler {
     };
   }
 
-  @Nullable
-  public static String unquote(PsiElement value) {
+  public static @Nullable String unquote(PsiElement value) {
     return ((JSLiteralExpression)value).getStringValue();
   }
 
@@ -739,7 +753,7 @@ public class AngularJSIndexingHandler extends FrameworkIndexingHandler {
             || ((JSObjectLiteralExpression)parent).findProperty(SCOPE) != null);
   }
 
-  private static boolean processTemplateProperty(@NotNull JSProperty property, @NotNull JSElementIndexingData data) {
+  private boolean processTemplateProperty(@NotNull JSProperty property, @NotNull JSElementIndexingData data) {
     JSExpression expression = property.getValue();
     if ((expression instanceof JSReferenceExpression
          || expression instanceof JSCallExpression)
@@ -749,7 +763,7 @@ public class AngularJSIndexingHandler extends FrameworkIndexingHandler {
     return false;
   }
 
-  private static boolean processTemplateUrlProperty(@NotNull JSProperty property, @NotNull JSElementIndexingData data) {
+  private boolean processTemplateUrlProperty(@NotNull JSProperty property, @NotNull JSElementIndexingData data) {
     JSExpression value;
     if ((value = property.getValue()) instanceof JSLiteralExpression
         && isControllerProperty(property)) {
@@ -758,9 +772,9 @@ public class AngularJSIndexingHandler extends FrameworkIndexingHandler {
     return false;
   }
 
-  private static boolean indexComponentTemplateRef(@NotNull JSProperty property,
-                                                   @Nullable String url,
-                                                   @NotNull JSElementIndexingData data) {
+  private boolean indexComponentTemplateRef(@NotNull JSProperty property,
+                                            @Nullable String url,
+                                            @NotNull JSElementIndexingData data) {
     if (StringUtil.isEmptyOrSpaces(url)) {
       return false;
     }
@@ -768,12 +782,12 @@ public class AngularJSIndexingHandler extends FrameworkIndexingHandler {
     data.addImplicitElement(
       new JSImplicitElementImpl.Builder(fileName, property)
         .setTypeString("TU;;;")
-        .setUserString(Objects.requireNonNull(INDEXES.getKeysByValue(AngularTemplateUrlIndex.KEY)).get(0))
+        .setUserString(this, Objects.requireNonNull(INDEXES.getKeysByValue(AngularTemplateUrlIndex.KEY)).get(0))
         .toImplicitElement());
     return true;
   }
 
-  private static boolean processScopedProperty(JSProperty property, JSElementIndexingData data, String propertyName, boolean isComponent) {
+  private boolean processScopedProperty(JSProperty property, JSElementIndexingData data, String propertyName, boolean isComponent) {
     PsiElement parent = property.getParent();
     if (parent instanceof JSObjectLiteralExpression && parent.getParent() instanceof JSProperty
         && propertyName.equals(((JSProperty)parent.getParent()).getName())
@@ -822,5 +836,10 @@ public class AngularJSIndexingHandler extends FrameworkIndexingHandler {
       }
     }
     return "expression";
+  }
+
+  @Override
+  protected @NotNull Set<@NotNull String> computeJSImplicitElementUserStringKeys() {
+    return INDEXES.keySet();
   }
 }

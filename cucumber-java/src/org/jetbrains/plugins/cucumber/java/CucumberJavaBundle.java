@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.cucumber.java;
 
 import com.intellij.DynamicBundle;
@@ -7,7 +8,7 @@ import org.jetbrains.annotations.PropertyKey;
 
 import java.util.function.Supplier;
 
-public class CucumberJavaBundle extends DynamicBundle {
+public final class CucumberJavaBundle extends DynamicBundle {
   @NonNls public static final String BUNDLE = "messages.CucumberJavaBundle";
   private static final CucumberJavaBundle INSTANCE = new CucumberJavaBundle();
 
@@ -19,7 +20,7 @@ public class CucumberJavaBundle extends DynamicBundle {
   }
 
   @NotNull
-  public static Supplier<String> lazyMessage(@NotNull @PropertyKey(resourceBundle = BUNDLE) String key, Object @NotNull ... params) {
+  public static Supplier<String> messagePointer(@NotNull @PropertyKey(resourceBundle = BUNDLE) String key, Object @NotNull ... params) {
     return INSTANCE.getLazyMessage(key, params);
   }
 }

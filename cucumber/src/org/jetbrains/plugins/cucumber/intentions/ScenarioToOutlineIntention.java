@@ -150,15 +150,13 @@ public class ScenarioToOutlineIntention implements IntentionAction {
     return builder.toString();
   }
 
-  private static String uniqueName(String name, Map<String, String> examples, String group) {
+  private static String uniqueName(@NotNull String name, @NotNull Map<String, String> examples, @NotNull String value) {
     String candidate = name;
-    if (name.equals(ARGUMENT)) {
-      int i = 1;
-      while (examples.containsKey(candidate)) {
-        candidate = name + i++;
-      }
+    int i = 1;
+    while (examples.containsKey(candidate) && !examples.get(candidate).equals(value)) {
+      candidate = name + i++;
     }
-    examples.put(candidate, group);
+    examples.put(candidate, value);
     return candidate;
   }
 

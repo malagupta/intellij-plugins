@@ -7,7 +7,6 @@
  *                                                                           *
  * Idea by Rachel Davies, Original code by Aslak Hellesoy and Paul Hammant   *
  *****************************************************************************/
-
 package org.picocontainer.defaults;
 
 import org.picocontainer.Parameter;
@@ -18,8 +17,6 @@ import org.picocontainer.PicoIntrospectionException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Modifier;
-import java.security.AccessController;
-import java.security.PrivilegedAction;
 import java.util.*;
 
 /**
@@ -62,50 +59,6 @@ public class ConstructorInjectionComponentAdapter extends InstantiatingComponent
                                               LifecycleStrategy lifecycleStrategy)
     throws AssignabilityRegistrationException {
     super(componentKey, componentImplementation, parameters, allowNonPublicClasses, lifecycleStrategy);
-  }
-
-  /**
-   * Creates a ConstructorInjectionComponentAdapter
-   *
-   * @param componentKey            the search key for this implementation
-   * @param componentImplementation the concrete implementation
-   * @param parameters              the parameters to use for the initialization
-   * @param allowNonPublicClasses   flag to allow instantiation of non-public classes.
-   * @throws AssignabilityRegistrationException if the key is a type and the implementation cannot be assigned to.
-   * @throws NullPointerException               if one of the parameters is <code>null</code>
-   */
-  public ConstructorInjectionComponentAdapter(final Object componentKey,
-                                              final Class componentImplementation,
-                                              Parameter[] parameters,
-                                              boolean allowNonPublicClasses)
-    throws AssignabilityRegistrationException {
-    super(componentKey, componentImplementation, parameters, allowNonPublicClasses);
-  }
-
-  /**
-   * Creates a ConstructorInjectionComponentAdapter with key, implementation and parameters
-   *
-   * @param componentKey            the search key for this implementation
-   * @param componentImplementation the concrete implementation
-   * @param parameters              the parameters to use for the initialization
-   * @throws AssignabilityRegistrationException if the key is a type and the implementation cannot be assigned to.
-   * @throws NullPointerException               if one of the parameters is <code>null</code>
-   */
-  public ConstructorInjectionComponentAdapter(Object componentKey, Class componentImplementation, Parameter[] parameters) {
-    this(componentKey, componentImplementation, parameters, false);
-  }
-
-  /**
-   * Creates a ConstructorInjectionComponentAdapter with key and implementation
-   *
-   * @param componentKey            the search key for this implementation
-   * @param componentImplementation the concrete implementation
-   * @throws AssignabilityRegistrationException if the key is a type and the implementation cannot be assigned to.
-   * @throws NullPointerException               if one of the parameters is <code>null</code>
-   */
-  public ConstructorInjectionComponentAdapter(Object componentKey, Class componentImplementation)
-    throws AssignabilityRegistrationException {
-    this(componentKey, componentImplementation, null);
   }
 
   @Override
@@ -162,12 +115,12 @@ public class ConstructorInjectionComponentAdapter extends InstantiatingComponent
       throw new TooManySatisfiableConstructorsException(conflicts);
     }
     else if (greediestConstructor == null && !unsatisfiableDependencyTypes.isEmpty()) {
-      throw new UnsatisfiableDependenciesException(this, unsatisfiedDependencyType, unsatisfiableDependencyTypes, container);
+      throw new UnsatisfiableDependenciesException(getComponentImplementation(), unsatisfiedDependencyType, unsatisfiableDependencyTypes, container);
     }
     else if (greediestConstructor == null) {
       // be nice to the user, show all constructors that were filtered out
       final Set nonMatching = new HashSet();
-      final Constructor[] constructors = getConstructors();
+      final Constructor[] constructors = getComponentImplementation().getDeclaredConstructors();
       Collections.addAll(nonMatching, constructors);
       throw new PicoInitializationException("Either do the specified parameters not match any of the following constructors: " +
                                             nonMatching.toString() +
@@ -238,7 +191,7 @@ public class ConstructorInjectionComponentAdapter extends InstantiatingComponent
 
   private List getSortedMatchingConstructors() {
     List<Constructor<?>> matchingConstructors = new ArrayList<>();
-    Constructor[] allConstructors = getConstructors();
+    Constructor[] allConstructors = getComponentImplementation().getDeclaredConstructors();
     // filter out all constructors that will definately not match
     for (Constructor<?> constructor : allConstructors) {
       if ((parameters == null || constructor.getParameterTypes().length == parameters.length) &&
@@ -248,17 +201,8 @@ public class ConstructorInjectionComponentAdapter extends InstantiatingComponent
     }
     // optimize list of constructors moving the longest at the beginning
     if (parameters == null) {
-      Collections.sort(matchingConstructors, (arg0, arg1) -> arg1.getParameterTypes().length - arg0.getParameterTypes().length);
+      matchingConstructors.sort((arg0, arg1) -> arg1.getParameterTypes().length - arg0.getParameterTypes().length);
     }
     return matchingConstructors;
-  }
-
-  private Constructor[] getConstructors() {
-    return AccessController.doPrivileged(new PrivilegedAction<Constructor[]>() {
-      @Override
-      public Constructor[] run() {
-        return getComponentImplementation().getDeclaredConstructors();
-      }
-    });
   }
 }

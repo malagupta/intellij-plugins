@@ -27,21 +27,22 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
+import java.util.function.Supplier;
 
 @SuppressWarnings("WeakerAccess")
-public class PlatformioBaseConfiguration extends CMakeAppRunConfiguration implements
-                                                                          CidrExecutableDataHolder, TargetAwareRunProfile {
+public abstract class PlatformioBaseConfiguration extends CMakeAppRunConfiguration
+  implements CidrExecutableDataHolder, TargetAwareRunProfile {
 
   private final String myBuildTargetName;
-  private final String mySuggestedName;
+  private final Supplier<String> mySuggestedName;
   private final String[] cliParameters;
 
 
-  private CPPToolchains.Toolchain myToolchain;
+  private volatile CPPToolchains.Toolchain myToolchain;
 
   public PlatformioBaseConfiguration(@NotNull Project project, @NotNull ConfigurationFactory configurationFactory,
-                                     @NotNull String myBuildTargetName, @NotNull String name, String @Nullable [] cliParameters) {
-    super(project, configurationFactory, name);
+                                     @NotNull String myBuildTargetName, @NotNull Supplier<String> name, String @Nullable [] cliParameters) {
+    super(project, configurationFactory, name.get());
     this.myBuildTargetName = myBuildTargetName;
     this.mySuggestedName = name;
     this.cliParameters = cliParameters;
@@ -89,13 +90,13 @@ public class PlatformioBaseConfiguration extends CMakeAppRunConfiguration implem
   @Override
   public void checkSettingsBeforeRun() throws RuntimeConfigurationException {
     if (myToolchain == null) {
-      throw new RuntimeConfigurationException("PlatformIO utility can't be found. Please check system path.");
+      throw new RuntimeConfigurationException(ClionEmbeddedPlatformioBundle.message("platformio.not.found.long"));
     }
   }
 
   @Override
   public String suggestedName() {
-    return mySuggestedName;
+    return mySuggestedName.get();
   }
 
   @Nullable
@@ -135,4 +136,7 @@ public class PlatformioBaseConfiguration extends CMakeAppRunConfiguration implem
     }
     return null;
   }
+
+  @NotNull
+  public abstract String getCmakeBuildTarget();
 }

@@ -15,15 +15,23 @@ import com.intellij.openapi.util.Ref;
 import com.intellij.tools.Tool;
 import com.intellij.ui.GuiUtils;
 import com.intellij.util.concurrency.Semaphore;
-import com.jetbrains.cidr.cpp.embedded.platformio.ui.PlatformioActionGroup;
+import com.jetbrains.cidr.cpp.embedded.platformio.ui.PlatformioCleanAction;
 import com.jetbrains.cidr.execution.build.CidrBuild;
+import icons.ClionEmbeddedPlatformioIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import javax.swing.*;
 
 
 public class PlatformioCleanBeforeRunTaskProvider extends BeforeRunTaskProvider<BeforeRunTask<?>> {
   public static final Key<BeforeRunTask<?>> ID = Key.create("PlatformioPluginTarget");
   private static final long executionId = ExecutionEnvironment.getNextUnusedExecutionId();
+
+  @Override
+  public @Nullable Icon getIcon() {
+    return ClionEmbeddedPlatformioIcons.Platformio;
+  }
 
   @Override
   public Key<BeforeRunTask<?>> getId() {
@@ -32,7 +40,7 @@ public class PlatformioCleanBeforeRunTaskProvider extends BeforeRunTaskProvider<
 
   @Override
   public String getName() {
-    return "PlatformIO Clean";
+    return ClionEmbeddedPlatformioBundle.message("platformio.prebuild.clean");
   }
 
   @Nullable
@@ -47,7 +55,7 @@ public class PlatformioCleanBeforeRunTaskProvider extends BeforeRunTaskProvider<
                              @NotNull RunConfiguration configuration,
                              @NotNull ExecutionEnvironment env,
                              @NotNull BeforeRunTask<?> task) {
-    Tool tool = PlatformioActionGroup.CLEAN_ACTION.createPlatformioTool(configuration.getProject());
+    Tool tool = PlatformioCleanAction.createPlatformioTool(configuration.getProject());
     Ref<Boolean> success = new Ref<>(false);
     Semaphore actionFinished = new Semaphore();
     if (tool != null) {
@@ -72,7 +80,8 @@ public class PlatformioCleanBeforeRunTaskProvider extends BeforeRunTaskProvider<
 
     if (!success.get()) {
       GuiUtils.invokeLaterIfNeeded(
-        () -> CidrBuild.showBuildNotification(configuration.getProject(), MessageType.ERROR, "Platformio clean failed"),
+        () -> CidrBuild.showBuildNotification(configuration.getProject(), MessageType.ERROR,
+                                              ClionEmbeddedPlatformioBundle.message("platformio.clean.failed")),
         ModalityState.NON_MODAL);
     }
     return success.get();

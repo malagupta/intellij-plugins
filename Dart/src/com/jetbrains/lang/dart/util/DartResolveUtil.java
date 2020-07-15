@@ -1,7 +1,6 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.lang.dart.util;
 
-import com.google.common.collect.Lists;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Condition;
@@ -16,7 +15,6 @@ import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.psi.util.PsiModificationTracker;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.psi.xml.XmlFile;
 import com.intellij.util.BooleanValueHolder;
 import com.intellij.util.Function;
 import com.intellij.util.SmartList;
@@ -46,28 +44,6 @@ import static com.jetbrains.lang.dart.util.DartUrlResolver.DART_CORE_URI;
 public class DartResolveUtil {
 
   public static final String OBJECT = "Object";
-
-  public static List<PsiElement> findDartRoots(@Nullable final PsiFile psiFile) {
-    if (psiFile instanceof XmlFile) {
-      return findDartRootsInXml((XmlFile)psiFile);
-    }
-    return psiFile instanceof DartFile ? Collections.singletonList(psiFile) : Collections.emptyList();
-  }
-
-  private static List<PsiElement> findDartRootsInXml(XmlFile xmlFile) {
-    final List<PsiElement> result = new ArrayList<>();
-    xmlFile.acceptChildren(new XmlRecursiveElementWalkingVisitor() {
-      @Override
-      public void visitElement(@NotNull PsiElement element) {
-        if (element instanceof DartEmbeddedContent) {
-          result.add(element);
-          return;
-        }
-        super.visitElement(element);
-      }
-    });
-    return result;
-  }
 
   public static boolean isLValue(PsiElement element) {
     if (element instanceof PsiFile) return false;
@@ -158,13 +134,13 @@ public class DartResolveUtil {
 
   @NotNull
   public static String getLibraryName(@NotNull final PsiFile psiFile) {
-    for (PsiElement root : findDartRoots(psiFile)) {
-      final DartLibraryStatement libraryStatement = PsiTreeUtil.getChildOfType(root, DartLibraryStatement.class);
+    if (psiFile instanceof DartFile) {
+      final DartLibraryStatement libraryStatement = PsiTreeUtil.getChildOfType(psiFile, DartLibraryStatement.class);
       if (libraryStatement != null) {
         return libraryStatement.getLibraryNameElement().getName();
       }
 
-      final DartPartOfStatement partOfStatement = PsiTreeUtil.getChildOfType(root, DartPartOfStatement.class);
+      final DartPartOfStatement partOfStatement = PsiTreeUtil.getChildOfType(psiFile, DartPartOfStatement.class);
       if (partOfStatement != null) {
         return partOfStatement.getLibraryName();
       }
@@ -227,8 +203,8 @@ public class DartResolveUtil {
     boolean contains = filesOfInterest == null || filesOfInterest.contains(virtualFile);
     if (contains) {
       final PsiFile psiFile = context.getManager().findFile(virtualFile);
-      for (PsiElement root : findDartRoots(psiFile)) {
-        if (!DartPsiCompositeElementImpl.processDeclarationsImpl(root, processor, ResolveState.initial(), null)) {
+      if (psiFile instanceof DartFile) {
+        if (!DartPsiCompositeElementImpl.processDeclarationsImpl(psiFile, processor, ResolveState.initial(), null)) {
           return false;
         }
       }
@@ -333,14 +309,11 @@ public class DartResolveUtil {
     if (contextVirtualFile == null) return Collections.emptyList();
 
     return CachedValuesManager.getCachedValue(context, () -> {
-      for (PsiElement root : findDartRoots(context)) {
-        final DartPartOfStatement partOfStatement = PsiTreeUtil.getChildOfType(root, DartPartOfStatement.class);
-        if (partOfStatement != null) {
-          final String libraryName = partOfStatement.getLibraryName();
-          final List<VirtualFile> files = findLibraryByName(context, libraryName);
-          if (!files.isEmpty()) {
-            return new CachedValueProvider.Result<>(files, PsiModificationTracker.MODIFICATION_COUNT);
-          }
+      final DartPartOfStatement partOfStatement = PsiTreeUtil.getChildOfType(context, DartPartOfStatement.class);
+      if (partOfStatement != null) {
+        List<VirtualFile> files = partOfStatement.getLibraryFiles();
+        if (!files.isEmpty()) {
+          return new CachedValueProvider.Result<>(files, PsiModificationTracker.MODIFICATION_COUNT);
         }
       }
 
@@ -361,11 +334,8 @@ public class DartResolveUtil {
     });
   }
 
-  public static boolean isLibraryRoot(PsiFile psiFile) {
-    for (PsiElement root : findDartRoots(psiFile)) {
-      if (PsiTreeUtil.getChildOfType(root, DartPartOfStatement.class) != null) return false;
-    }
-    return true;
+  public static boolean isLibraryRoot(@NotNull DartFile dartFile) {
+    return PsiTreeUtil.getChildOfType(dartFile, DartPartOfStatement.class) == null;
   }
 
   // todo this method must look for main function in library parts as well
@@ -451,7 +421,7 @@ public class DartResolveUtil {
 
   public static List<DartMethodDeclaration> findOperators(AbstractDartPsiClass dartPsiClass) {
     return findSubComponents(dartClass -> {
-      List<DartMethodDeclaration> operators = Lists.newArrayList();
+      List<DartMethodDeclaration> operators = new ArrayList<>();
       final DartMethodDeclaration[] methods = PsiTreeUtil.getChildrenOfType(getBody(dartClass), DartMethodDeclaration.class);
       if (methods != null) {
         for (DartMethodDeclaration method : methods) {
@@ -811,12 +781,13 @@ public class DartResolveUtil {
     return finalResult == null ? DartClassResolveResult.EMPTY : finalResult;
   }
 
-  public static int getArgumentIndex(PsiElement place, @Nullable DartFunctionDescription functionDescription) {
+  public static int getArgumentIndex(@Nullable PsiElement place, @Nullable DartFunctionDescription functionDescription) {
+    if (place == null) return -1;
+
     int parameterIndex = -1;
     final DartArgumentList argumentList = PsiTreeUtil.getParentOfType(place, DartArgumentList.class, false);
     String selectedArgumentName = null;
     if (place == argumentList) {
-      assert argumentList != null;
       final DartFunctionDescription functionDescription2 =
         DartFunctionDescription.tryGetDescription((DartCallExpression)argumentList.getParent());
       // the last one

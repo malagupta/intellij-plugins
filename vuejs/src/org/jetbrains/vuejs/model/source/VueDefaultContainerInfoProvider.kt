@@ -2,24 +2,32 @@
 package org.jetbrains.vuejs.model.source
 
 import com.intellij.codeInsight.completion.CompletionUtil
-import com.intellij.lang.ecmascript6.psi.ES6ExportDefaultAssignment
+import com.intellij.lang.javascript.JSElementTypes
 import com.intellij.lang.javascript.JSStubElementTypes
 import com.intellij.lang.javascript.psi.*
-import com.intellij.lang.javascript.psi.ecma6.impl.JSLocalImplicitElementImpl
 import com.intellij.lang.javascript.psi.stubs.JSImplicitElement
+import com.intellij.lang.javascript.psi.types.JSTypeSourceFactory
+import com.intellij.lang.javascript.psi.types.evaluable.JSApplyCallType
 import com.intellij.lang.javascript.psi.util.JSStubBasedPsiTreeUtil
 import com.intellij.psi.PsiElement
+import com.intellij.psi.StubBasedPsiElement
+import com.intellij.psi.impl.source.html.HtmlFileImpl
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.stubs.StubIndexKey
 import com.intellij.psi.tree.TokenSet
 import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.util.castSafelyTo
 import one.util.streamex.StreamEx
 import org.jetbrains.vuejs.codeInsight.getJSTypeFromPropOptions
 import org.jetbrains.vuejs.codeInsight.getRequiredFromPropOptions
 import org.jetbrains.vuejs.codeInsight.getTextIfLiteral
 import org.jetbrains.vuejs.codeInsight.objectLiteralFor
-import org.jetbrains.vuejs.index.*
+import org.jetbrains.vuejs.index.LOCAL
+import org.jetbrains.vuejs.index.VueExtendsBindingIndex
+import org.jetbrains.vuejs.index.VueMixinBindingIndex
+import org.jetbrains.vuejs.index.resolve
 import org.jetbrains.vuejs.model.*
+import org.jetbrains.vuejs.model.source.VueComponents.Companion.getComponentDescriptor
 
 class VueDefaultContainerInfoProvider : VueContainerInfoProvider.VueInitializedContainerInfoProvider(::VueSourceContainerInfo) {
 
@@ -32,7 +40,7 @@ class VueDefaultContainerInfoProvider : VueContainerInfoProvider.VueInitializedC
     override val model: VueModelDirectiveProperties get() = get(MODEL)
 
     override val delimiters: Pair<String, String>? get() = get(DELIMITERS)
-    override val extends: List<VueMixin> get() = get(EXTENDS)
+    override val extends: List<VueMixin> get() = get(EXTENDS) + get(EXTENDS_CALL)
     override val components: Map<String, VueComponent> get() = get(COMPONENTS)
     override val directives: Map<String, VueDirective> get() = get(DIRECTIVES)
     override val mixins: List<VueMixin> get() = get(MIXINS)
@@ -43,15 +51,15 @@ class VueDefaultContainerInfoProvider : VueContainerInfoProvider.VueInitializedC
   companion object {
 
     private val ContainerMember = object {
-      val Props: MemberReader = MemberReader("props", true)
-      val Computed = MemberReader("computed")
-      val Methods = MemberReader("methods")
-      val Directives = MemberReader("directives")
-      val Components = MemberReader("components")
-      val Filters = MemberReader("filters")
-      val Delimiters = MemberReader("delimiters", true, false)
-      val Model = MemberReader("model")
-      val Data = object : MemberReader("data") {
+      val Props: MemberReader = MemberReader(PROPS_PROP, true)
+      val Computed = MemberReader(COMPUTED_PROP)
+      val Methods = MemberReader(METHODS_PROP)
+      val Directives = MemberReader(DIRECTIVES_PROP)
+      val Components = MemberReader(COMPONENTS_PROP)
+      val Filters = MemberReader(FILTERS_PROP)
+      val Delimiters = MemberReader(DELIMITERS_PROP, true, false)
+      val Model = MemberReader(MODEL_PROP)
+      val Data = object : MemberReader(DATA_PROP) {
         override fun getObjectLiteralFromResolved(resolved: PsiElement): JSObjectLiteralExpression? =
           findReturnedObjectLiteral(resolved)
 
@@ -76,6 +84,7 @@ class VueDefaultContainerInfoProvider : VueContainerInfoProvider.VueInitializedC
     }
 
     private val EXTENDS = MixinsAccessor(EXTENDS_PROP, VueExtendsBindingIndex.KEY)
+    private val EXTENDS_CALL = ExtendsCallAccessor()
     private val MIXINS = MixinsAccessor(MIXINS_PROP, VueMixinBindingIndex.KEY)
     private val DIRECTIVES = DirectivesAccessor()
     private val COMPONENTS = ComponentsAccessor()
@@ -90,22 +99,49 @@ class VueDefaultContainerInfoProvider : VueContainerInfoProvider.VueInitializedC
     private val MODEL = ModelAccessor()
   }
 
+  private class ExtendsCallAccessor : ListAccessor<VueMixin>() {
+    override fun build(declaration: JSObjectLiteralExpression): List<VueMixin> =
+      declaration.context
+        ?.let { if (it is JSArgumentList) it.context else it }
+        ?.castSafelyTo<JSCallExpression>()
+        ?.indexingData
+        ?.implicitElements
+        ?.asSequence()
+        ?.filter { it.userString == VueExtendsBindingIndex.JS_KEY }
+        ?.mapNotNull { VueComponents.vueMixinDescriptorFinder(it) }
+        ?.mapNotNull { VueModelManager.getMixin(it) }
+        ?.toList()
+      ?: emptyList()
+  }
+
   private class MixinsAccessor(private val propertyName: String,
                                private val indexKey: StubIndexKey<String, JSImplicitElementProvider>)
     : ListAccessor<VueMixin>() {
 
     override fun build(declaration: JSObjectLiteralExpression): List<VueMixin> {
       val mixinsProperty = declaration.findProperty(propertyName) ?: return emptyList()
-      val elements = resolve(LOCAL, GlobalSearchScope.fileScope(mixinsProperty.containingFile.originalFile), indexKey)
-                     ?: return emptyList()
       val original = CompletionUtil.getOriginalOrSelf<PsiElement>(mixinsProperty)
-      return StreamEx.of(elements)
-        .filter { PsiTreeUtil.isAncestor(original, it.parent, false) }
-        .map { VueComponents.vueMixinDescriptorFinder(it) }
-        .nonNull()
-        .map { VueModelManager.getMixin(it!!) }
-        .nonNull()
-        .toList()
+      val referencedMixins: List<VueMixin> =
+        resolve(LOCAL, GlobalSearchScope.fileScope(mixinsProperty.containingFile.originalFile), indexKey)
+          ?.asSequence()
+          ?.filter { PsiTreeUtil.isAncestor(original, it.parent, false) }
+          ?.mapNotNull { VueComponents.vueMixinDescriptorFinder(it) }
+          ?.mapNotNull { VueModelManager.getMixin(it) }
+          ?.toList()
+        ?: emptyList()
+
+      val initializerMixins: List<VueMixin> =
+        (mixinsProperty as? StubBasedPsiElement<*>)?.stub
+          ?.getChildrenByType(JSElementTypes.OBJECT_LITERAL_EXPRESSION, JSObjectLiteralExpression.ARRAY_FACTORY)
+          ?.mapNotNull { VueModelManager.getMixin(it) }
+        ?: (mixinsProperty.value as? JSArrayLiteralExpression)
+          ?.expressions
+          ?.asSequence()
+          ?.filterIsInstance<JSObjectLiteralExpression>()
+          ?.mapNotNull { VueModelManager.getMixin(it) }
+          ?.toList()
+        ?: emptyList()
+      return referencedMixins + initializerMixins
     }
   }
 
@@ -132,14 +168,14 @@ class VueDefaultContainerInfoProvider : VueContainerInfoProvider.VueInitializedC
       return StreamEx.of(ContainerMember.Components.readMembers(declaration))
         .mapToEntry({ p -> p.first }, { p -> p.second })
         .mapValues { element ->
-          (VueComponents.meaningfulExpression(element) ?: element)
-            .let { meaningfulElement ->
-              objectLiteralFor(meaningfulElement)
-              ?: (meaningfulElement.parent as? ES6ExportDefaultAssignment)
-                ?.let { VueComponents.getExportedDescriptor(it) }
-                ?.let { it.obj ?: it.clazz }
-            }
-            ?.let { VueModelManager.getComponent(it) }
+          val meaningfulElement = VueComponents.meaningfulExpression(element) ?: element
+          if (meaningfulElement is HtmlFileImpl) {
+            VueModelManager.getComponent(meaningfulElement)
+          }
+          else {
+            getComponentDescriptor(meaningfulElement as? JSElement)
+              ?.let { VueModelManager.getComponent(it) }
+          }
           ?: VueUnresolvedComponent()
         }
         .distinctKeys()
@@ -155,9 +191,9 @@ class VueDefaultContainerInfoProvider : VueContainerInfoProvider.VueInitializedC
         (element as? JSProperty)?.value
           ?.let { getTextIfLiteral(it) }
           ?.let { value ->
-            if (name == "prop")
+            if (name == MODEL_PROP_PROP)
               prop = value
-            else if (name == "event")
+            else if (name == MODEL_EVENT_PROP)
               event = value
           }
       }
@@ -179,11 +215,11 @@ class VueDefaultContainerInfoProvider : VueContainerInfoProvider.VueInitializedC
 
 
   private class VueSourceInputProperty(override val name: String,
-                                       sourceElement: PsiElement?) : VueInputProperty {
+                                       sourceElement: PsiElement) : VueInputProperty {
 
-    override val source: JSLocalImplicitElementImpl =
-      JSLocalImplicitElementImpl(name, getJSTypeFromPropOptions((sourceElement as? JSProperty)?.value),
-                                 sourceElement, JSImplicitElement.Type.Property)
+    override val source: VueImplicitElement =
+      VueImplicitElement(name, getJSTypeFromPropOptions((sourceElement as? JSProperty)?.value),
+                         sourceElement, JSImplicitElement.Type.Property, true)
     override val jsType: JSType? = source.jsType
     override val required: Boolean = getRequiredFromPropOptions((sourceElement as? JSProperty)?.value)
   }
@@ -192,20 +228,36 @@ class VueDefaultContainerInfoProvider : VueContainerInfoProvider.VueInitializedC
                                       override val source: PsiElement?) : VueDataProperty
 
   private class VueSourceComputedProperty(override val name: String,
-                                          sourceElement: PsiElement?) : VueComputedProperty {
-    override val source: JSLocalImplicitElementImpl
+                                          sourceElement: PsiElement) : VueComputedProperty {
+    override val source: VueImplicitElement
     override val jsType: JSType?
 
     init {
-      val functionSource = (sourceElement as? JSProperty)?.tryGetFunctionInitializer() ?: sourceElement
-      source = JSLocalImplicitElementImpl(name, (functionSource as? JSFunctionItem)?.returnType,
-                                          functionSource, JSImplicitElement.Type.Property)
+      var provider = sourceElement
+      val returnType = when (sourceElement) {
+        is JSFunctionProperty -> sourceElement.returnType
+        is JSProperty -> {
+          val functionInitializer = sourceElement.tryGetFunctionInitializer()
+          if (functionInitializer != null) {
+            provider = functionInitializer
+            functionInitializer.returnType
+          }
+          else {
+            sourceElement.jsType?.let {
+              JSApplyCallType(it, JSTypeSourceFactory.createTypeSource(sourceElement, false))
+            }
+          }
+        }
+        else -> null
+      }
+      source = VueImplicitElement(name, returnType, provider, JSImplicitElement.Type.Property, true)
       jsType = source.jsType
     }
 
   }
 
   private class VueSourceMethod(override val name: String,
-                                override val source: PsiElement?) : VueMethod
-
+                                override val source: PsiElement?) : VueMethod {
+    override val jsType: JSType? get() = (source as? JSProperty)?.jsType
+  }
 }

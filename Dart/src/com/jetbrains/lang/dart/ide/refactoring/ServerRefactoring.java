@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.lang.dart.ide.refactoring;
 
-import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.Uninterruptibles;
 import com.google.dart.server.GetRefactoringConsumer;
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -24,6 +9,7 @@ import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.progress.util.ProgressIndicatorUtils;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.jetbrains.lang.dart.DartBundle;
 import com.jetbrains.lang.dart.analyzer.DartAnalysisServerService;
 import com.jetbrains.lang.dart.ide.refactoring.status.RefactoringStatus;
 import com.jetbrains.lang.dart.ide.refactoring.status.RefactoringStatusEntry;
@@ -32,6 +18,7 @@ import org.dartlang.analysis.server.protocol.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -49,13 +36,13 @@ public abstract class ServerRefactoring {
   private final int offset;
   private final int length;
 
-  private final Set<Integer> pendingRequestIds = Sets.newHashSet();
+  private final Set<Integer> pendingRequestIds = new HashSet<Integer>();
   @Nullable private RefactoringStatus serverErrorStatus;
   @Nullable private RefactoringStatus initialStatus;
   @Nullable private RefactoringStatus optionsStatus;
   @Nullable private RefactoringStatus finalStatus;
   @Nullable private SourceChange change;
-  @NotNull private final Set<String> potentialEdits = Sets.newHashSet();
+  @NotNull private final Set<String> potentialEdits = new HashSet<String>();
 
   private int lastId = 0;
   @Nullable private ServerRefactoringListener listener;
@@ -89,7 +76,7 @@ public abstract class ServerRefactoring {
     ProgressManager.getInstance().run(new Task.Modal(null, refactoringName, true) {
       @Override
       public void run(@NotNull ProgressIndicator indicator) {
-        indicator.setText("Validating the specified parameters.");
+        indicator.setText(DartBundle.message("progress.text.validating.the.specified.parameters"));
         indicator.setIndeterminate(true);
         setOptions(false, indicator);
       }
@@ -111,7 +98,7 @@ public abstract class ServerRefactoring {
     ProgressManager.getInstance().run(new Task.Modal(null, refactoringName, true) {
       @Override
       public void run(@NotNull ProgressIndicator indicator) {
-        indicator.setText("Checking availability at the selection.");
+        indicator.setText(DartBundle.message("progress.text.checking.availability.at.the.selection"));
         indicator.setIndeterminate(true);
         setOptions(true, indicator);
       }

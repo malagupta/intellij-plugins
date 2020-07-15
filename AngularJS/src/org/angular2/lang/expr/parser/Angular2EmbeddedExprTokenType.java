@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.angular2.lang.expr.parser;
 
 import com.intellij.lang.PsiBuilder;
@@ -14,7 +14,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Objects;
 import java.util.function.BiConsumer;
 
-public class Angular2EmbeddedExprTokenType extends Angular2EmbeddedContentTokenType {
+public final class Angular2EmbeddedExprTokenType extends Angular2EmbeddedContentTokenType {
 
   public static final Angular2EmbeddedExprTokenType ACTION_EXPR = new Angular2EmbeddedExprTokenType(
     "NG:ACTION_EXPR", Angular2EmbeddedExprTokenType.ExpressionType.ACTION);
@@ -29,8 +29,8 @@ public class Angular2EmbeddedExprTokenType extends Angular2EmbeddedContentTokenT
     return new Angular2EmbeddedExprTokenType("NG:TEMPLATE_BINDINGS_EXPR", ExpressionType.TEMPLATE_BINDINGS, templateKey);
   }
 
-  @NotNull private final ExpressionType myExpressionType;
-  @Nullable private final String myTemplateKey;
+  private final @NotNull ExpressionType myExpressionType;
+  private final @Nullable String myTemplateKey;
 
   private Angular2EmbeddedExprTokenType(@NotNull @NonNls String debugName, @NotNull ExpressionType expressionType) {
     super(debugName, Angular2Language.INSTANCE);
@@ -60,9 +60,8 @@ public class Angular2EmbeddedExprTokenType extends Angular2EmbeddedContentTokenT
     return Objects.hash(super.hashCode(), myExpressionType, myTemplateKey);
   }
 
-  @NotNull
   @Override
-  protected Lexer createLexer() {
+  protected @NotNull Lexer createLexer() {
     return new Angular2Lexer();
   }
 
@@ -93,6 +92,5 @@ public class Angular2EmbeddedExprTokenType extends Angular2EmbeddedContentTokenT
         myParseMethod.accept(builder, root);
       }
     }
-
   }
 }

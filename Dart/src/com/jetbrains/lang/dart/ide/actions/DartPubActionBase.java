@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.lang.dart.ide.actions;
 
 import com.intellij.CommonBundle;
@@ -93,7 +93,7 @@ abstract public class DartPubActionBase extends AnAction implements DumbAware {
     final Pair<Module, VirtualFile> moduleAndPubspec = getModuleAndPubspecYamlFile(e);
     // Defer to the Flutter plugin if appropriate.
     final boolean visible = moduleAndPubspec != null &&
-                            !(FlutterUtil.isFlutterPluginInstalled() && FlutterUtil.isFlutterModule(moduleAndPubspec.first));
+                            !(FlutterUtil.isFlutterPluginInstalled() && FlutterUtil.isPubspecDeclaringFlutter(moduleAndPubspec.second));
     e.getPresentation().setVisible(visible);
     e.getPresentation().setEnabled(visible && !isInProgress());
   }
@@ -317,7 +317,7 @@ abstract public class DartPubActionBase extends AnAction implements DumbAware {
 
     final AnAction closeContentAction = new CloseActiveTabAction();
     closeContentAction.getTemplatePresentation().setIcon(AllIcons.Actions.Cancel);
-    closeContentAction.getTemplatePresentation().setText(UIBundle.lazyMessage("tabbed.pane.close.tab.action.name"));
+    closeContentAction.getTemplatePresentation().setText(UIBundle.messagePointer("tabbed.pane.close.tab.action.name"));
     actionGroup.add(closeContentAction);
 
     final ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar("DartPubAction", actionGroup, false);

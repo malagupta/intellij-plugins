@@ -1,35 +1,79 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package training.ui
 
+import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.keymap.KeymapManager
+import com.intellij.openapi.keymap.impl.ActionShortcutRestrictions
+import com.intellij.openapi.keymap.impl.ui.KeymapPanel
+import com.intellij.openapi.ui.popup.Balloon
+import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.ui.JBColor
+import com.intellij.ui.awt.RelativePoint
+import com.intellij.ui.components.labels.LinkLabel
 import com.intellij.util.ui.JBUI
 import icons.FeaturesTrainerIcons
-import java.awt.Font
-import java.awt.Graphics
-import java.awt.Graphics2D
-import java.awt.Point
+import training.keymap.KeymapUtil
+import training.util.invokeActionForFocusContext
+import training.util.useNewLearningUi
+import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.geom.RoundRectangle2D
 import java.util.concurrent.CopyOnWriteArrayList
-import javax.swing.Icon
-import javax.swing.JTextPane
+import javax.swing.*
 import javax.swing.text.BadLocationException
 import javax.swing.text.SimpleAttributeSet
 import javax.swing.text.StyleConstants
 
 class LessonMessagePane : JTextPane() {
+  private data class RangeData(val range: IntRange, val action: (Point) -> Unit)
 
   private val lessonMessages = CopyOnWriteArrayList<LessonMessage>()
   private val fontFamily = Font(UISettings.instance.fontFace, Font.PLAIN, UISettings.instance.fontSize).family
+
+  private val ranges = mutableListOf<RangeData>()
 
   //, fontFace, check_width + check_right_indent
   init {
     initStyleConstants()
     isEditable = false
+    val listener = object : MouseAdapter() {
+      override fun mouseClicked(me: MouseEvent) {
+        val rangeData = getRangeDataForMouse(me) ?: return
+        val middle = (rangeData.range.first + rangeData.range.last) / 2
+        val rectangle = modelToView(middle)
+        rangeData.action(Point(rectangle.x.toInt(), (rectangle.y + rectangle.height).toInt()))
+      }
+
+      override fun mouseMoved(me: MouseEvent) {
+        val rangeData = getRangeDataForMouse(me)
+        if (rangeData == null) {
+          cursor = Cursor.getDefaultCursor()
+        }
+        else {
+          cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        }
+      }
+    }
+    addMouseListener(listener)
+    addMouseMotionListener(listener)
+  }
+
+  private fun getRangeDataForMouse(me: MouseEvent) : RangeData? {
+    val point = Point(me.x, me.y)
+    val offset = viewToModel(point)
+    val result = ranges.find { offset in it.range } ?: return null
+    if (offset < 0 || offset >= document.length) return null
+    for (i in result.range) {
+      val rectangle = modelToView(i)
+      if (me.x >= rectangle.x && me.y >= rectangle.y && me.y <= rectangle.y + rectangle.height) {
+        return result
+      }
+    }
+    return null
   }
 
   private fun initStyleConstants() {
@@ -74,6 +118,20 @@ class LessonMessagePane : JTextPane() {
     this.setParagraphAttributes(PARAGRAPH_STYLE, true)
   }
 
+  fun messagesNumber(): Int = lessonMessages.size
+
+  fun resetMessagesNumber(number: Int) {
+    if (number == 0) {
+      clear()
+      return
+    }
+    val end = lessonMessages[number - 1].end
+    document.remove(end, document.length - end)
+    while (number < lessonMessages.size) {
+      lessonMessages.removeAt(lessonMessages.size - 1)
+    }
+  }
+
   fun addMessage(text: String) {
     try {
       val start = document.length
@@ -99,19 +157,13 @@ class LessonMessagePane : JTextPane() {
         when (message.type) {
           Message.MessageType.TEXT_REGULAR -> document.insertString(document.length, message.text, REGULAR)
           Message.MessageType.TEXT_BOLD -> document.insertString(document.length, message.text, BOLD)
-          Message.MessageType.SHORTCUT -> document.insertString(document.length, " ${message.text} ", SHORTCUT)
+          Message.MessageType.SHORTCUT -> appendShortcut(message)
           Message.MessageType.CODE -> document.insertString(document.length, message.text, CODE)
           Message.MessageType.CHECK -> document.insertString(document.length, message.text, ROBOTO)
           Message.MessageType.LINK -> appendLink(message)
-          Message.MessageType.ICON -> {
-            val icon = iconFromPath(message)
-            var placeholder = " "
-            while (this.getFontMetrics(this.font).stringWidth(placeholder) <= icon.iconWidth) {
-              placeholder += " "
-            }
-            placeholder += " "
-            document.insertString(document.length, placeholder, REGULAR)
-          }
+          Message.MessageType.ICON -> message.toIcon()?.let { addPlaceholderForIcon(it) }
+          Message.MessageType.ICON_IDX -> LearningUiManager.iconMap[message.text]?.let { addPlaceholderForIcon(it) }
+          Message.MessageType.PROPOSE_RESTORE -> document.insertString(document.length, message.text, BOLD)
         }
         message.endOffset = document.endPosition.offset
       }
@@ -123,25 +175,65 @@ class LessonMessagePane : JTextPane() {
     }
   }
 
+  private fun addPlaceholderForIcon(icon: Icon) {
+    var placeholder = " "
+    while (this.getFontMetrics(this.font).stringWidth(placeholder) <= icon.iconWidth) {
+      placeholder += " "
+    }
+    placeholder += " "
+    document.insertString(document.length, placeholder, REGULAR)
+  }
+
   /**
    * inserts a checkmark icon to the end of the LessonMessagePane document as a styled label.
    */
   @Throws(BadLocationException::class)
   fun passPreviousMessages() {
-    if (lessonMessages.size > 0) {
-      val lessonMessage = lessonMessages[lessonMessages.size - 1]
-      lessonMessage.passed = true
+    val lessonMessage = lessonMessages.lastOrNull() ?: return
+    lessonMessage.passed = true
 
-      //Repaint text with passed style
-      val passedStyle = this.addStyle("PassedStyle", null)
-      StyleConstants.setForeground(passedStyle, UISettings.instance.passedColor)
-      styledDocument.setCharacterAttributes(0, lessonMessage.end, passedStyle, false)
+    //Repaint text with passed style
+    setPassedStyle(lessonMessage)
+  }
+
+  private fun setPassedStyle(lessonMessage: LessonMessage) {
+    val passedStyle = this.addStyle("PassedStyle", null)
+    StyleConstants.setForeground(passedStyle, UISettings.instance.passedColor)
+    styledDocument.setCharacterAttributes(0, lessonMessage.end, passedStyle, false)
+  }
+
+  fun redrawMessagesAsCompleted() {
+    val copy = lessonMessages.toList()
+    clear()
+    for (lessonMessage in copy) {
+      addMessage(lessonMessage.messages.toTypedArray())
+    }
+    for ((index, it) in lessonMessages.withIndex()) {
+      it.passed = copy[index].passed
+    }
+    addMessage(arrayOf(Message("Completed!", Message.MessageType.TEXT_BOLD)))
+    val completedStyle = this.addStyle("Completed", null)
+    StyleConstants.setForeground(completedStyle, UISettings.instance.completedColor)
+    styledDocument.setCharacterAttributes(lessonMessages.last().start, lessonMessages.last().end, completedStyle, false)
+    repaint()
+  }
+
+  fun redrawMessages() {
+    val copy = lessonMessages.toList()
+    clear()
+    for (lessonMessage in copy) {
+      addMessage(lessonMessage.messages.toTypedArray())
+    }
+    for ((index, it) in lessonMessages.withIndex()) {
+      it.passed = copy[index].passed
+      if (it.passed) setPassedStyle(it)
     }
   }
 
   fun clear() {
     text = ""
     lessonMessages.clear()
+    ranges.clear()
   }
 
   /**
@@ -151,24 +243,55 @@ class LessonMessagePane : JTextPane() {
    */
   @Throws(BadLocationException::class)
   private fun appendLink(message: Message) {
-    val startLink = document.endPosition.offset
-    document.insertString(document.length, message.text, LINK)
-    val endLink = document.endPosition.offset
+    val clickRange = appendClickableRange(message.text, LINK)
+    val runnable = message.runnable ?: return
+    ranges.add(RangeData(clickRange) { runnable.run() })
+  }
 
-    addMouseListener(object : MouseAdapter() {
+  private fun appendShortcut(message: Message) {
+    val range = appendClickableRange(" ${message.text} ", SHORTCUT)
+    val clickRange = IntRange(range.first + 1, range.last - 1) // exclude around spaces
+    ranges.add(RangeData(clickRange) { showShortcutBalloon(it, message.link, message.text) })
+  }
 
-      override fun mouseClicked(me: MouseEvent) {
-        val x = me.x
-        val y = me.y
+  private fun showShortcutBalloon(it: Point, actionName: String?, shortcut: String) {
+    lateinit var balloon: Balloon
+    val jPanel = JPanel()
+    jPanel.layout = BoxLayout(jPanel, BoxLayout.Y_AXIS)
+    if (SystemInfo.isMac) {
+      jPanel.add(JLabel(KeymapUtil.decryptMacShortcut(shortcut)))
+    }
+    val action = actionName?.let { ActionManager.getInstance().getAction(it) }
+    if (action != null) {
+      jPanel.add(JLabel(action.templatePresentation.text))
+      jPanel.add(LinkLabel<Any>("Apply this action", null) { _, _ ->
+        invokeActionForFocusContext(action)
+        balloon.hide()
+      })
+      jPanel.add(LinkLabel<Any>("Add shortcut", null) { _, _ ->
+        KeymapPanel.addKeyboardShortcut(actionName, ActionShortcutRestrictions.getInstance().getForActionId(actionName), KeymapManager.getInstance().activeKeymap, this)
+        balloon.hide()
+        repaint()
+      })
+    }
+    val builder = JBPopupFactory.getInstance()
+      .createDialogBalloonBuilder(jPanel, null)
+      //.setRequestFocus(true)
+      .setHideOnClickOutside(true)
+      .setCloseButtonEnabled(true)
+      .setAnimationCycle(0)
+      .setBlockClicksThroughBalloon(true)
+      //.setContentInsets(Insets(0, 0, 0, 0))
+    builder.setBorderColor(JBColor(Color.BLACK, Color.WHITE))
+    balloon = builder.createBalloon()
+    balloon.show(RelativePoint(this, it), Balloon.Position.below)
+  }
 
-        val clickOffset = viewToModel(Point(x, y))
-        val runnable = message.runnable
-        if (clickOffset in startLink..endLink && runnable != null) {
-          runnable.run()
-        }
-
-      }
-    })
+  private fun appendClickableRange(clickable: String, attributeSet: SimpleAttributeSet): IntRange {
+    val startLink = document.length
+    document.insertString(document.length, clickable, attributeSet)
+    val endLink = document.length
+    return startLink..endLink
   }
 
   override fun paintComponent(g: Graphics) {
@@ -190,11 +313,12 @@ class LessonMessagePane : JTextPane() {
         if (startOffset != 0) startOffset++
         try {
           val rectangle = modelToView(startOffset)
+          val checkmark = if (useNewLearningUi) FeaturesTrainerIcons.GreenCheckmark else FeaturesTrainerIcons.Checkmark
           if (SystemInfo.isMac) {
-            FeaturesTrainerIcons.Checkmark.paintIcon(this, g, rectangle.x - UISettings.instance.checkIndent, rectangle.y + JBUI.scale(1))
+            checkmark.paintIcon(this, g, rectangle.x - UISettings.instance.checkIndent, rectangle.y + JBUI.scale(1))
           }
           else {
-            FeaturesTrainerIcons.Checkmark.paintIcon(this, g, rectangle.x - UISettings.instance.checkIndent, rectangle.y + JBUI.scale(1))
+            checkmark.paintIcon(this, g, rectangle.x - UISettings.instance.checkIndent, rectangle.y + JBUI.scale(1))
           }
         }
         catch (e: BadLocationException) {
@@ -234,18 +358,16 @@ class LessonMessagePane : JTextPane() {
         }
         else if (myMessage.type == Message.MessageType.ICON) {
           val rect = modelToView(myMessage.startOffset)
-          val icon = iconFromPath(myMessage)
-          icon.paintIcon(this, g2d, rect.x, rect.y)
+          val icon = myMessage.toIcon()
+          icon?.paintIcon(this, g2d, rect.x, rect.y)
+        }
+        else if (myMessage.type == Message.MessageType.ICON_IDX) {
+          val rect = modelToView(myMessage.startOffset)
+          val icon = LearningUiManager.iconMap[myMessage.text]
+          icon?.paintIcon(this, g2d, rect.x, rect.y)
         }
       }
     }
-  }
-
-  private fun iconFromPath(myMessage: Message): Icon {
-    val iconName = myMessage.text.substringAfterLast(".")
-    val path = myMessage.text.substringBeforeLast(".")
-    val fullPath = "com.intellij.icons.${path.replace(".", "$")}"
-    return Class.forName(fullPath).getField(iconName).get(null) as Icon
   }
 
   companion object {
@@ -265,7 +387,4 @@ class LessonMessagePane : JTextPane() {
     private val arc by lazy { JBUI.scale(4) }
     private val indent by lazy { JBUI.scale(2) }
   }
-
-
 }
-

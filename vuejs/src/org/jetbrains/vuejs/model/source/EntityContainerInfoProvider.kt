@@ -2,12 +2,14 @@
 package org.jetbrains.vuejs.model.source
 
 import com.intellij.lang.ecmascript6.psi.ES6ImportExportDeclarationPart
+import com.intellij.lang.ecmascript6.psi.ES6ImportedBinding
 import com.intellij.lang.javascript.JSKeywordElementType
 import com.intellij.lang.javascript.JSStubElementTypes
 import com.intellij.lang.javascript.JSTokenTypes
 import com.intellij.lang.javascript.psi.*
 import com.intellij.lang.javascript.psi.ecmal4.JSClass
 import com.intellij.lang.javascript.psi.impl.JSPsiImplUtils
+import com.intellij.lang.javascript.psi.resolve.JSResolveUtil
 import com.intellij.lang.javascript.psi.util.JSClassUtils
 import com.intellij.lang.javascript.psi.util.JSStubBasedPsiTreeUtil
 import com.intellij.psi.PsiElement
@@ -15,21 +17,22 @@ import com.intellij.psi.util.CachedValueProvider
 import com.intellij.psi.util.CachedValuesManager
 import com.intellij.psi.util.PsiModificationTracker
 import com.intellij.util.castSafelyTo
+import org.jetbrains.vuejs.codeInsight.collectPropertiesRecursively
 import org.jetbrains.vuejs.codeInsight.getStringLiteralsFromInitializerArray
 import org.jetbrains.vuejs.codeInsight.getTextIfLiteral
-import org.jetbrains.vuejs.codeInsight.objectLiteralFor
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.function.Function
 
 interface EntityContainerInfoProvider<T> {
 
-  fun getInfo(initializer: JSObjectLiteralExpression?, clazz: JSClass?): T?
+  @JvmDefault
+  fun getInfo(descriptor: VueSourceEntityDescriptor): T? = null
 
   abstract class DecoratedContainerInfoProvider<T>(val createInfo: (clazz: JSClass) -> T) : EntityContainerInfoProvider<T> {
 
-    final override fun getInfo(initializer: JSObjectLiteralExpression?, clazz: JSClass?): T? =
-      clazz?.let {
+    final override fun getInfo(descriptor: VueSourceEntityDescriptor): T? =
+      descriptor.clazz?.let {
         val manager = CachedValuesManager.getManager(it.project)
         manager.getCachedValue(it, manager.getKeyForClass<T>(this::class.java), {
           val dependencies = mutableListOf<Any>()
@@ -45,8 +48,8 @@ interface EntityContainerInfoProvider<T> {
 
   abstract class InitializedContainerInfoProvider<T>(val createInfo: (initializer: JSObjectLiteralExpression) -> T) : EntityContainerInfoProvider<T> {
 
-    final override fun getInfo(initializer: JSObjectLiteralExpression?, clazz: JSClass?): T? =
-      initializer?.let {
+    final override fun getInfo(descriptor: VueSourceEntityDescriptor): T? =
+      descriptor.initializer?.let {
         val manager = CachedValuesManager.getManager(it.project)
         manager.getCachedValue(it, manager.getKeyForClass<T>(this::class.java), {
           CachedValueProvider.Result.create(createInfo(it), PsiModificationTracker.MODIFICATION_COUNT)
@@ -113,7 +116,10 @@ interface EntityContainerInfoProvider<T> {
         val initializerReference = JSPsiImplUtils.getInitializerReference(property)
         if (propsObject == null && initializerReference != null) {
           var resolved = JSStubBasedPsiTreeUtil.resolveLocally(initializerReference, property)
-          if (resolved is ES6ImportExportDeclarationPart) {
+          if (resolved is ES6ImportedBinding && resolved.isNamespaceImport) {
+            return processJSTypeMembers(JSResolveUtil.getElementJSType(resolved))
+          }
+          else if (resolved is ES6ImportExportDeclarationPart) {
             resolved = VueComponents.meaningfulExpression(resolved)
           }
           if (resolved is JSObjectLiteralExpression) {
@@ -128,36 +134,26 @@ interface EntityContainerInfoProvider<T> {
           }
         }
         if (propsObject != null && canBeObject) {
-          return filteredObjectProperties(propsObject)
+          return collectPropertiesRecursively(propsObject)
         }
         return if (canBeArray) readPropsFromArray(property) else return emptyList()
       }
 
-      protected open fun getObjectLiteral(property: JSProperty): JSObjectLiteralExpression? = null
-      protected open fun getObjectLiteralFromResolved(resolved: PsiElement): JSObjectLiteralExpression? = null
-
-      private fun filteredObjectProperties(propsObject: JSObjectLiteralExpression): List<Pair<String, JSElement>> {
-        val result = mutableListOf<Pair<String, JSElement>>()
-        val initialPropsList = propsObject.propertiesIncludingSpreads
-        val queue = ArrayDeque<JSElement>(initialPropsList.size)
-        queue.addAll(initialPropsList)
-        while (queue.isNotEmpty()) {
-          when (val property = queue.pollLast()) {
-            is JSSpreadExpression -> {
-              objectLiteralFor(property.expression)
-                ?.propertiesIncludingSpreads
-                ?.toCollection(queue)
-            }
-            is JSProperty -> {
-              if (property.name != null) {
-                result.add(Pair(property.name!!, property))
-              }
-            }
-          }
-        }
-        return result
+      private fun processJSTypeMembers(type: JSType?): List<Pair<String, JSElement>> {
+        return type?.asRecordType()
+                 ?.properties
+                 ?.mapNotNull { prop ->
+                   prop.takeIf { it.hasValidName() }
+                     ?.memberSource
+                     ?.singleElement
+                     ?.castSafelyTo<JSElement>()
+                     ?.let { Pair(prop.memberName, it) }
+                 }
+               ?: emptyList()
       }
 
+      protected open fun getObjectLiteral(property: JSProperty): JSObjectLiteralExpression? = null
+      protected open fun getObjectLiteralFromResolved(resolved: PsiElement): JSObjectLiteralExpression? = null
 
       private fun readPropsFromArray(holder: PsiElement): List<Pair<String, JSElement>> =
         getStringLiteralsFromInitializerArray(holder)

@@ -3,7 +3,12 @@ package training.ui.welcomeScreen.recentProjects
 
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.WelcomeFrameProvider
+import training.actions.StartLearnAction
+import training.ui.welcomeScreen.recentProjects.actionGroups.GroupManager
 
 class IFTFlatWelcomeFrameProvider : WelcomeFrameProvider {
+  init {
+    StartLearnAction.updateState(GroupManager.instance.showTutorialsOnWelcomeFrame)
+  }
   override fun createFrame(): IdeFrame = IFTFlatWelcomeFrame()
 }

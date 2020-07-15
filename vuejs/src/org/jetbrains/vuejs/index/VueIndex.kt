@@ -4,15 +4,11 @@ package org.jetbrains.vuejs.index
 import com.intellij.javascript.nodejs.packages.NodePackageUtil
 import com.intellij.lang.javascript.buildTools.npm.PackageJsonUtil
 import com.intellij.lang.javascript.psi.JSImplicitElementProvider
-import com.intellij.lang.javascript.psi.JSIndexedPropertyAccessExpression
-import com.intellij.lang.javascript.psi.JSReferenceExpression
 import com.intellij.lang.javascript.psi.stubs.JSImplicitElement
-import com.intellij.lang.javascript.psi.stubs.impl.JSImplicitElementImpl
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootModificationTracker
 import com.intellij.openapi.vfs.VirtualFileManager
-import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiManager
 import com.intellij.psi.search.FilenameIndex
 import com.intellij.psi.search.GlobalSearchScope
@@ -24,22 +20,19 @@ import com.intellij.util.Processor
 import org.jetbrains.vuejs.codeInsight.fromAsset
 import org.jetbrains.vuejs.index.VueIndexBase.Companion.createJSKey
 
-const val VUE: String = "vue"
-const val VUETIFY: String = "vuetify"
-const val BOOTSTRAP_VUE: String = "bootstrap-vue"
-const val SHARDS_VUE: String = "shards-vue"
+const val VUE_MODULE: String = "vue"
+const val VUE_INSTANCE_MODULE: String = "vue/types/vue"
+const val VUETIFY_MODULE: String = "vuetify"
+const val BOOTSTRAP_VUE_MODULE: String = "bootstrap-vue"
+const val SHARDS_VUE_MODULE: String = "shards-vue"
+const val VUE_CLASS_COMPONENT_MODULE: String = "vue-class-component"
+const val COMPOSITION_API_MODULE: String = "@vue/composition-api"
 
 @Suppress("PropertyName")
 const val GLOBAL: String = "global"
 const val LOCAL: String = "local"
-const val MIXINS_PROP: String = "mixins"
-const val EXTENDS_PROP: String = "extends"
-const val DIRECTIVES_PROP: String = "directives"
-const val NAME_PROP: String = "name"
-const val TEMPLATE_PROP: String = "template"
 const val GLOBAL_BINDING_MARK: String = "*"
-const val VUE_CLASS_COMPONENT: String = "vue-class-component"
-private const val INDEXED_ACCESS_HINT = "[]"
+internal const val INDEXED_ACCESS_HINT = "[]"
 const val DELIMITER = "#"
 
 fun getForAllKeys(scope: GlobalSearchScope, key: StubIndexKey<String, JSImplicitElementProvider>): Collection<JSImplicitElement> {
@@ -72,12 +65,12 @@ fun hasVueClassComponentLibrary(project: Project): Boolean {
   return CachedValuesManager.getManager(project).getCachedValue(project) {
     val packageJsonFiles = FilenameIndex.getVirtualFilesByName(project, PackageJsonUtil.FILE_NAME, GlobalSearchScope.projectScope(project))
 
-    var recordedDependency = packageJsonFiles.any { PackageJsonUtil.getOrCreateData(it).isDependencyOfAnyType(VUE_CLASS_COMPONENT) }
+    var recordedDependency = packageJsonFiles.any { PackageJsonUtil.getOrCreateData(it).isDependencyOfAnyType(VUE_CLASS_COMPONENT_MODULE) }
     if (!recordedDependency) {
       val psiManager = PsiManager.getInstance(project)
       recordedDependency = packageJsonFiles.any {
         val psiFile = psiManager.findFile(it) ?: return@any false
-        NodePackageUtil.hasAnyOfPluginsInstalled(psiFile, listOf(VUE_CLASS_COMPONENT))
+        NodePackageUtil.hasAnyOfPluginsInstalled(psiFile, listOf(VUE_CLASS_COMPONENT_MODULE))
       }
     }
     CachedValueProvider.Result(recordedDependency, VirtualFileManager.VFS_STRUCTURE_MODIFICATIONS,
@@ -85,25 +78,10 @@ fun hasVueClassComponentLibrary(project: Project): Boolean {
   }
 }
 
-fun createImplicitElement(name: String, provider: PsiElement, indexKey: String,
-                          nameType: String? = null,
-                          descriptor: PsiElement? = null,
-                          isGlobal: Boolean = false): JSImplicitElementImpl {
-  val normalized = normalizeNameForIndex(name)
-  val nameTypeRecord = nameType ?: ""
-  val asIndexed = descriptor as? JSIndexedPropertyAccessExpression
-  var descriptorRef = asIndexed?.qualifier?.text ?: (descriptor as? JSReferenceExpression)?.text ?: ""
-  if (asIndexed != null) descriptorRef += INDEXED_ACCESS_HINT
-  return JSImplicitElementImpl.Builder(normalized, provider)
-    .setUserString(indexKey)
-    .setTypeString("${if (isGlobal) 1 else 0}$DELIMITER$nameTypeRecord$DELIMITER$descriptorRef$DELIMITER$name")
-    .toImplicitElement()
-}
+internal fun normalizeNameForIndex(name: String) = fromAsset(name.substringBeforeLast(GLOBAL_BINDING_MARK))
 
-private fun normalizeNameForIndex(name: String) = fromAsset(name.substringBeforeLast(GLOBAL_BINDING_MARK))
-
-fun getVueIndexData(element: JSImplicitElement): VueIndexData {
-  val typeStr = element.typeString ?: return VueIndexData(element.name, null, null, false, isGlobal = false)
+fun getVueIndexData(element: JSImplicitElement): VueIndexData? {
+  val typeStr = element.typeString ?: return null
   val originalName = typeStr.substringAfterLast(DELIMITER)
   val s = typeStr.substringBeforeLast(DELIMITER)
   val parts = s.split(DELIMITER)

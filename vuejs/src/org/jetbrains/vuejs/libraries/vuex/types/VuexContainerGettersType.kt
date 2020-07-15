@@ -3,20 +3,18 @@ package org.jetbrains.vuejs.libraries.vuex.types
 
 import com.intellij.lang.javascript.psi.JSRecordType
 import com.intellij.lang.javascript.psi.JSType
-import com.intellij.lang.javascript.psi.ecma6.impl.JSLocalImplicitElementImpl
-import com.intellij.lang.javascript.psi.stubs.JSImplicitElement
-import com.intellij.lang.javascript.psi.types.JSRecordTypeImpl
 import com.intellij.lang.javascript.psi.types.JSSimpleRecordTypeImpl
 import com.intellij.lang.javascript.psi.types.JSTypeSource
 import com.intellij.psi.PsiElement
 import org.jetbrains.vuejs.libraries.vuex.model.store.VuexContainer
 import org.jetbrains.vuejs.libraries.vuex.model.store.VuexStoreContext
+import org.jetbrains.vuejs.libraries.vuex.model.store.VuexStoreNamespace
 
-class VuexContainerGettersType private constructor(source: JSTypeSource, element: PsiElement, baseNamespace: String)
+class VuexContainerGettersType private constructor(source: JSTypeSource, element: PsiElement, baseNamespace: VuexStoreNamespace)
   : VuexContainerPropertyTypeBase(source, element, baseNamespace) {
 
-  constructor(element: PsiElement, baseNamespace: String)
-    : this(JSTypeSource(element.containingFile, element, JSTypeSource.SourceLanguage.TS, true), element, baseNamespace)
+  constructor(element: PsiElement, baseNamespace: VuexStoreNamespace)
+    : this(JSTypeSource(element, JSTypeSource.SourceLanguage.TS, true), element, baseNamespace)
 
   override val kind: String = "getters"
 
@@ -26,12 +24,9 @@ class VuexContainerGettersType private constructor(source: JSTypeSource, element
 
   override fun createStateRecord(context: VuexStoreContext, baseNamespace: String): JSRecordType? {
     val result = mutableListOf<JSRecordType.TypeMember>()
-    context.visitSymbols(VuexContainer::getters) { fullName, symbol ->
-      if (fullName.startsWith(baseNamespace)) {
-        result.add(JSRecordTypeImpl.PropertySignatureImpl(
-          fullName.substring(baseNamespace.length), symbol.jsType, false, false,
-          JSLocalImplicitElementImpl(fullName.substring(baseNamespace.length), symbol.jsType, symbol.source,
-                                     JSImplicitElement.Type.Property)))
+    context.visitSymbols(VuexContainer::getters) { qualifiedName, symbol ->
+      if (qualifiedName.startsWith(baseNamespace)) {
+        result.add(symbol.getPropertySignature(baseNamespace, qualifiedName))
       }
     }
     return JSSimpleRecordTypeImpl(source, result)

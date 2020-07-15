@@ -1,12 +1,12 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package training.learn.lesson.javascript.completion
 
-import com.intellij.lang.javascript.dialects.JSLanguageLevel
-import com.intellij.lang.javascript.settings.JSRootConfiguration
 import com.intellij.openapi.editor.impl.EditorComponentImpl
+import com.intellij.openapi.wm.ToolWindowManager
 import training.lang.JavaScriptLangSupport
 import training.learn.interfaces.Module
 import training.learn.lesson.javascript.checkWordInSearchEverywhereInput
+import training.learn.lesson.javascript.setLanguageLevel
 import training.learn.lesson.javascript.shiftSymbol
 import training.learn.lesson.javascript.textAtCaretEqualsTo
 import training.learn.lesson.kimpl.KLesson
@@ -43,9 +43,15 @@ class NavigationLesson(module: Module) : KLesson("Secrets of Efficient Navigatio
   override val lessonContent: LessonContext.() -> Unit
     get() {
       return {
-        JSRootConfiguration.getInstance(project).storeLanguageLevelAndUpdateCaches(JSLanguageLevel.ES6)
+        setLanguageLevel()
+        prepareRuntimeTask {
+          //by default in 2020.1 "Structure" is in "top-left" state, also the state can be changed by user
+          val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Structure")
+          toolWindow?.setSplitMode(true, null)
+        }
+        
         prepareSample(sample)
-
+        
         task("RecentFiles") {
           text("Let’s start with navigating around a project. Press ${action(it)} to call up the <strong>Recent Files</strong> popup.")
           trigger(it)
@@ -82,13 +88,13 @@ class NavigationLesson(module: Module) : KLesson("Secrets of Efficient Navigatio
           trigger(it)
         }
         task {
-          text("Now that we’re on the <strong>Actions</strong> tab, let’s type <strong>Declaration or Usages</strong> in the search bar to look up a shortcut for another useful navigation feature.")
+          text("Now that we’re on the <strong>Actions</strong> tab, let’s start typing <strong>Go to Declaration or Usages</strong> in the search bar to look up a shortcut for another useful navigation feature.")
           stateCheck {
-            checkWordInSearchEverywhereInput("Declaration o")
+            checkWordInSearchEverywhereInput("go to d")
           }
         }
         task("GotoDeclaration") {
-          text("Notice the ${action(it)} next to <strong>Declaration or Usages</strong> – it shows you usages for the definition and vice versa. Let’s close the popup, place the caret on <strong>snoopy</strong> (line 16), and hit ${action(it)} to look for its declaration.")
+          text("Notice the ${action(it)} next to <strong>Go to Declaration or Usages</strong> – it shows you usages for the definition and vice versa. Let’s close the popup, place the caret on <strong>snoopy</strong> (line 16), and hit ${action(it)} to look for its declaration.")
           stateCheck {
             textAtCaretEqualsTo("snoopy")
           }

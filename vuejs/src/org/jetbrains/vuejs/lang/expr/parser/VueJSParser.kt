@@ -6,13 +6,12 @@ import com.intellij.lang.ecmascript6.parsing.ES6ExpressionParser
 import com.intellij.lang.ecmascript6.parsing.ES6FunctionParser
 import com.intellij.lang.ecmascript6.parsing.ES6Parser
 import com.intellij.lang.ecmascript6.parsing.ES6StatementParser
-import com.intellij.lang.javascript.JSBundle
-import com.intellij.lang.javascript.JSElementTypes
-import com.intellij.lang.javascript.JSStubElementTypes
-import com.intellij.lang.javascript.JSTokenTypes
+import com.intellij.lang.javascript.*
 import com.intellij.lang.javascript.parsing.JSPsiTypeParser
 import com.intellij.lang.javascript.parsing.JavaScriptParser
-import com.intellij.psi.css.impl.CssElementTypes.KEYWORDS
+import com.intellij.lang.javascript.psi.JSParameter
+import com.intellij.lang.javascript.psi.JSStubElementType
+import com.intellij.lang.javascript.psi.stubs.JSParameterStub
 import com.intellij.psi.tree.IElementType
 import org.jetbrains.vuejs.VueBundle.message
 import org.jetbrains.vuejs.codeInsight.attributes.VueAttributeNameParser.*
@@ -37,6 +36,7 @@ class VueJSParser(builder: PsiBuilder, private val isJavaScript: Boolean)
             when ((attributeInfo as VueDirectiveInfo).directiveKind) {
               VueDirectiveKind.FOR -> VueJSStatementParser::parseVFor
               VueDirectiveKind.BIND -> VueJSStatementParser::parseVBind
+              VueDirectiveKind.ON -> VueJSStatementParser::parseVOn
               VueDirectiveKind.SLOT -> VueJSStatementParser::parseSlotPropsExpression
               else -> VueJSStatementParser::parseRegularExpression
             }
@@ -72,11 +72,23 @@ class VueJSParser(builder: PsiBuilder, private val isJavaScript: Boolean)
     fun parseRegularExpression() {
       if (!myExpressionParser.parseFilterOptional() && !builder.eof()) {
         val mark = builder.mark()
-        if (!builder.eof()) {
+        builder.advanceLexer()
+        mark.error(JavaScriptBundle.message("javascript.parser.message.expected.expression"))
+        parseRest(true)
+      }
+    }
+
+    fun parseVOn() {
+      while (!builder.eof()) {
+        if (builder.tokenType === JSTokenTypes.SEMICOLON) {
           builder.advanceLexer()
         }
-        mark.error(JSBundle.message("javascript.parser.message.expected.expression"))
-        parseRest(true)
+        else if (!parseExpressionStatement()) {
+          builder.error(JavaScriptBundle.message("javascript.parser.message.expected.expression"))
+          if (!builder.eof()) {
+            builder.advanceLexer()
+          }
+        }
       }
     }
 
@@ -86,7 +98,7 @@ class VueJSParser(builder: PsiBuilder, private val isJavaScript: Boolean)
         if (!builder.eof()) {
           builder.advanceLexer()
         }
-        mark.error(JSBundle.message("javascript.parser.message.expected.expression"))
+        mark.error(JavaScriptBundle.message("javascript.parser.message.expected.expression"))
         parseRest(true)
       }
     }
@@ -103,7 +115,7 @@ class VueJSParser(builder: PsiBuilder, private val isJavaScript: Boolean)
             && builder.tokenType !== JSTokenTypes.OF_KEYWORD) {
           builder.advanceLexer()
         }
-        marker.error(JSBundle.message("javascript.parser.message.expected.identifier"))
+        marker.error(JavaScriptBundle.message("javascript.parser.message.expected.identifier"))
       }
       if (builder.tokenType !== JSTokenTypes.IN_KEYWORD && builder.tokenType !== JSTokenTypes.OF_KEYWORD) {
         builder.error(message("vue.parser.message.expected.in.or.of"))
@@ -116,21 +128,41 @@ class VueJSParser(builder: PsiBuilder, private val isJavaScript: Boolean)
     }
 
     fun parseSlotPropsExpression() {
-      val slotPropsExpression = builder.mark()
-      if (builder.eof()) {
-        builder.mark().error(message("vue.parser.message.expected.slot.props.var"))
-      }
-      else {
-        parseVariableStatement(VueJSStubElementTypes.SLOT_PROPS_VARIABLE)
-        if (!builder.eof()) {
-          val mark = builder.mark()
-          while (!builder.eof()) {
-            builder.advanceLexer()
-          }
-          mark.error(message("vue.parser.message.unexpected.tokens.slot.props.var"))
+      val slotPropsParameterList = builder.mark()
+      val functionParser = object : ES6FunctionParser<VueJSParser>(this@VueJSParser) {
+        override fun getParameterType(): JSStubElementType<JSParameterStub, JSParameter>? {
+          return VueJSStubElementTypes.SLOT_PROPS_PARAMETER
         }
       }
-      slotPropsExpression.done(VueJSElementTypes.SLOT_PROPS_EXPRESSION)
+      var first = true
+      while (!builder.eof()) {
+        if (first) {
+          first = false
+        }
+        else {
+          if (builder.tokenType === JSTokenTypes.COMMA) {
+            builder.advanceLexer()
+          }
+          else {
+            builder.error(message("vue.parser.message.expected.comma.or.end.of.expression"))
+            break
+          }
+        }
+        val parameter = builder.mark()
+        if (builder.tokenType === JSTokenTypes.DOT_DOT_DOT) {
+          builder.advanceLexer()
+        }
+        else if (builder.tokenType === JSTokenTypes.DOT) {
+          // incomplete ...args
+          builder.error(JavaScriptBundle.message("javascript.parser.message.expected.parameter.name"))
+          while (builder.tokenType === JSTokenTypes.DOT) {
+            builder.advanceLexer()
+          }
+        }
+        functionParser.parseSingleParameter(parameter)
+      }
+      slotPropsParameterList.done(JSStubElementTypes.PARAMETER_LIST)
+      slotPropsParameterList.precede().done(VueJSElementTypes.SLOT_PROPS_EXPRESSION)
     }
 
     internal fun parseRest(initialReported: Boolean = false) {
@@ -153,7 +185,7 @@ class VueJSParser(builder: PsiBuilder, private val isJavaScript: Boolean)
             if (reported && !justReported) {
               val mark = builder.mark()
               builder.advanceLexer()
-              mark.error(JSBundle.message("javascript.parser.message.expected.expression"))
+              mark.error(JavaScriptBundle.message("javascript.parser.message.expected.expression"))
             }
             else {
               builder.advanceLexer()
@@ -206,7 +238,7 @@ class VueJSParser(builder: PsiBuilder, private val isJavaScript: Boolean)
         }
       }
       if (builder.tokenType != JSTokenTypes.RPAR) {
-        builder.error(JSBundle.message("javascript.parser.message.expected.rparen"))
+        builder.error(JavaScriptBundle.message("javascript.parser.message.expected.rparen"))
         while (!builder.eof()
                && builder.tokenType != JSTokenTypes.RPAR
                && builder.tokenType != JSTokenTypes.IN_KEYWORD
@@ -225,7 +257,7 @@ class VueJSParser(builder: PsiBuilder, private val isJavaScript: Boolean)
     }
   }
 
-  inner class VueJSExpressionParser(parser: VueJSParser) : ES6ExpressionParser<VueJSParser>(parser) {
+  class VueJSExpressionParser(parser: VueJSParser) : ES6ExpressionParser<VueJSParser>(parser) {
 
     private var expressionNestingLevel: Int = 0
 
@@ -248,7 +280,7 @@ class VueJSParser(builder: PsiBuilder, private val isJavaScript: Boolean)
       while (builder.tokenType === JSTokenTypes.OR) {
         firstParam.done(FILTER_LEFT_SIDE_ARGUMENT)
         builder.advanceLexer()
-        if (builder.tokenType === JSTokenTypes.IDENTIFIER || KEYWORDS.contains(builder.tokenType)) {
+        if (isIdentifierToken(builder.tokenType)) {
           val pipeName = builder.mark()
           builder.advanceLexer()
           pipeName.done(FILTER_REFERENCE_EXPRESSION)

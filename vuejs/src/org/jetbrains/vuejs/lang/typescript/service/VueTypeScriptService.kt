@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.vuejs.lang.typescript.service
 
 import com.intellij.lang.javascript.DialectDetector
@@ -15,6 +15,7 @@ import com.intellij.lang.typescript.compiler.languageService.protocol.TypeScript
 import com.intellij.lang.typescript.compiler.languageService.protocol.commands.ConfigureRequest
 import com.intellij.lang.typescript.compiler.languageService.protocol.commands.ConfigureRequestArguments
 import com.intellij.lang.typescript.compiler.languageService.protocol.commands.FileExtensionInfo
+import com.intellij.lang.typescript.compiler.languageService.protocol.commands.TypeScriptOpenEditorCommand
 import com.intellij.lang.typescript.tsconfig.TypeScriptConfigService
 import com.intellij.lang.typescript.tsconfig.TypeScriptConfigUtil
 import com.intellij.openapi.application.ReadAction
@@ -31,45 +32,7 @@ import org.jetbrains.vuejs.index.findModule
 import org.jetbrains.vuejs.lang.html.VueFileType
 import org.jetbrains.vuejs.lang.typescript.service.protocol.VueTypeScriptServiceProtocol
 
-/**
- * We need to modify "original" file content by removing all content excluding ts code
- */
-fun getModifiedVueDocumentText(project: Project, document: Document): String? {
-  val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document)
-  if (psiFile == null) return ""
-
-  val module = findModule(psiFile) ?: return ""
-  if (!DialectDetector.isTypeScript(module)) return ""
-
-  val text = module.node
-  val textRange = text.textRange
-
-  val lineNumber = document.getLineNumber(textRange.startOffset)
-  val newLines = StringUtil.repeat("\n", lineNumber)
-  val currentLineStart = textRange.startOffset - document.getLineStartOffset(lineNumber)
-
-  if (currentLineStart < 0) return ""
-
-  val spacesCurrentLine = StringUtil.repeat(" ", currentLineStart)
-
-  val startSpaceCount = textRange.startOffset - newLines.length - currentLineStart
-  if (startSpaceCount < 0) return ""
-  val fakeBefore = StringUtil.repeat(" ", startSpaceCount)
-
-  val afterSpaces = document.textLength - textRange.endOffset - 1
-  if (afterSpaces < 0) return ""
-
-  val fakeAfter = StringUtil.repeat(" ", afterSpaces)
-
-  val result = fakeBefore + newLines + spacesCurrentLine + text.text + "\n" + fakeAfter
-
-  assert(result.length == document.textLength)
-
-  return result
-}
-
-class VueTypeScriptService(project: Project) :
-  TypeScriptServerServiceImpl(project, "Vue Console") {
+class VueTypeScriptService(project: Project) : TypeScriptServerServiceImpl(project, "Vue Console") {
 
   override fun isAcceptableNonTsFile(project: Project, service: TypeScriptConfigService, virtualFile: VirtualFile): Boolean {
     if (super.isAcceptableNonTsFile(project, service, virtualFile)) return true
@@ -150,6 +113,8 @@ class VueTypeScriptService(project: Project) :
     val arguments = ConfigureRequestArguments()
     val fileExtensionInfo = FileExtensionInfo()
     fileExtensionInfo.extension = ".vue"
+    fileExtensionInfo.scriptKind = 3
+    fileExtensionInfo.isMixedContent = false
     arguments.extraFileExtensions = arrayOf(fileExtensionInfo)
 
     result[ConfigureRequest(arguments)] = Consumer {}
@@ -157,12 +122,6 @@ class VueTypeScriptService(project: Project) :
 
   override fun createLSCache(): TypeScriptLanguageServiceCache {
     return VueTypeScriptServiceCache(myProject)
-  }
-
-  override fun getDocumentText(file: VirtualFile, instance: FileDocumentManager, document: Document): CharSequence? {
-    if (!isVueFile(file)) return super.getDocumentText(file, instance, document)
-
-    return getModifiedVueDocumentText(myProject, document) ?: ""
   }
 
   override fun createFixSet(file: PsiFile,

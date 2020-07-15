@@ -25,9 +25,8 @@ import static org.angular2.codeInsight.tags.Angular2TagDescriptorsProvider.NG_CO
 
 public class AngularInvalidSelectorInspection extends LocalInspectionTool {
 
-  @NotNull
   @Override
-  public PsiElementVisitor buildVisitor(@NotNull final ProblemsHolder holder, boolean isOnTheFly) {
+  public @NotNull PsiElementVisitor buildVisitor(final @NotNull ProblemsHolder holder, boolean isOnTheFly) {
     if (holder.getFile() instanceof HtmlLikeFile) {
       return new XmlElementVisitor() {
         @Override
@@ -64,7 +63,7 @@ public class AngularInvalidSelectorInspection extends LocalInspectionTool {
             if (selector == null) {
               if (DIRECTIVE_DEC.equals(decorator.getDecoratorName())) {
                 holder.registerProblem(initializer,
-                                       Angular2Bundle.message("angular.inspection.decorator.directive-missing-selector-property"),
+                                       Angular2Bundle.message("angular.inspection.invalid-directive-selector.message.missing"),
                                        new AddJSPropertyQuickFix(initializer, SELECTOR_PROP, "", 0, false));
               }
             }

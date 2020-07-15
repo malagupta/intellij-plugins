@@ -1,17 +1,30 @@
 package com.jetbrains.cidr.cpp.embedded.platformio;
 
-import com.intellij.openapi.fileTypes.FileType;
+import com.intellij.lang.Language;
+import com.intellij.openapi.fileTypes.FileTypeManager;
+import com.intellij.openapi.fileTypes.LanguageFileType;
+import com.intellij.openapi.fileTypes.PlainTextLanguage;
 import com.intellij.openapi.vfs.VirtualFile;
 import icons.ClionEmbeddedPlatformioIcons;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
-public class PlatformioFileType implements FileType {
+public class PlatformioFileType extends LanguageFileType {
   public static final String EXTENSION = "ini";
   public static final PlatformioFileType INSTANCE = new PlatformioFileType();
   public static final String FILE_NAME = "platformio.ini";
+
+  public PlatformioFileType() {
+    super(findLanguage());
+  }
+
+  @Override
+  public boolean isReadOnly() {
+    return false;
+  }
 
   @Override
   public @NotNull
@@ -22,7 +35,7 @@ public class PlatformioFileType implements FileType {
   @Override
   public @NotNull
   String getDescription() {
-    return "PlatformIO";
+    return ClionEmbeddedPlatformioBundle.message("platformio.file.type");
   }
 
   @Override
@@ -37,19 +50,19 @@ public class PlatformioFileType implements FileType {
     return ClionEmbeddedPlatformioIcons.Platformio;
   }
 
-  @Override
-  public boolean isBinary() {
-    return false;
+  private static Language findLanguage() {
+    Language language = Language.findLanguageByID("Ini");
+    return language == null ? PlainTextLanguage.INSTANCE : language;
   }
 
   @Override
-  public boolean isReadOnly() {
-    return true;
-  }
-
-  @Override
-  public @Nullable
-  String getCharset(@NotNull VirtualFile virtualFile, byte @NotNull [] bytes) {
+  @Nullable
+  public String getCharset(@NotNull VirtualFile virtualFile, byte @NotNull [] bytes) {
     return null;
+  }
+
+  @Contract("null->false")
+  public static boolean isFileOfType(@Nullable VirtualFile file) {
+    return file != null && FileTypeManager.getInstance().isFileOfType(file, INSTANCE);
   }
 }

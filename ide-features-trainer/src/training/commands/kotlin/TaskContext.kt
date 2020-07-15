@@ -1,61 +1,70 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package training.commands.kotlin
 
-import com.intellij.openapi.application.WriteAction
-import com.intellij.openapi.editor.Editor
-import com.intellij.openapi.project.DumbService
-import com.intellij.openapi.project.Project
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.openapi.wm.IdeFocusManager
-import com.intellij.psi.PsiDocumentManager
+import com.intellij.ui.tree.TreeVisitor
+import com.intellij.util.ui.tree.TreeUtil
+import org.fest.swing.timing.Timeout
 import org.intellij.lang.annotations.Language
-import org.jdom.input.SAXBuilder
-import training.check.Check
-import training.learn.ActionsRecorder
-import training.learn.lesson.LessonManager
-import training.learn.lesson.kimpl.KLesson
+import training.learn.lesson.kimpl.LessonUtil
+import training.ui.LearningUiHighlightingManager
+import training.ui.LearningUiManager
+import training.ui.LearningUiUtil
 import java.awt.Component
+import java.awt.Rectangle
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
+import javax.swing.Icon
+import javax.swing.JList
+import javax.swing.JTree
+import javax.swing.tree.TreePath
 
-class TaskContext(val lesson: KLesson, val editor: Editor, val project: Project,
-                  private val recorder: ActionsRecorder) {
-  val steps: MutableList<CompletableFuture<Boolean>> = mutableListOf()
+abstract class TaskContext {
+  /** Put here some initialization for the task */
+  abstract fun before(preparation: TaskRuntimeContext.() -> Unit)
 
-  val testActions: MutableList<Runnable> = mutableListOf()
+  abstract fun restoreState(delayMillis: Int = 0, checkState: TaskRuntimeContext.() -> Boolean)
+
+  /** Shortcut */
+  fun restoreByUi(delayMillis: Int = 0) {
+    restoreState(delayMillis = delayMillis) {
+      previous.ui?.isShowing?.not() ?: true
+    }
+  }
+
+  enum class RestoreProposal {
+    None,
+    Caret,
+    Modification
+  }
+
+  data class RestoreNotification(val type: RestoreProposal, val callback: () -> Unit)
+
+  abstract fun proposeRestore(restoreCheck: TaskRuntimeContext.() -> RestoreProposal)
 
   /**
    * Write a text to the learn panel (panel with a learning tasks).
    */
-  fun text(@Language("HTML") text: String) {
-    val wrappedText = "<root><text>$text</text></root>"
-    val textAsElement = SAXBuilder().build(wrappedText.byteInputStream()).rootElement.getChild("text")
-                        ?: throw IllegalStateException("Can't parse as XML:\n$text")
-    LessonManager.instance.addMessages(textAsElement)
-  }
+  abstract fun text(@Language("HTML") text: String)
 
   /** Simply wait until an user perform particular action */
-  fun trigger(actionId: String) {
-    steps.add(recorder.futureAction(actionId))
-  }
+  abstract fun trigger(actionId: String)
+
+  /** Simply wait until an user perform actions */
+  abstract fun trigger(checkId: (String) -> Boolean)
 
   /** Trigger on actions start. Needs if you want to split long actions into several tasks. */
-  fun triggerStart(actionId: String, checkState: () -> Boolean = { true }) {
-    steps.add(recorder.futureActionOnStart(actionId, checkState))
-  }
+  abstract fun triggerStart(actionId: String, checkState: TaskRuntimeContext.() -> Boolean = { true })
 
-  fun triggers(vararg actionIds: String) {
-    steps.add(recorder.futureListActions(actionIds.toList()))
-  }
+  abstract fun triggers(vararg actionIds: String)
 
   /** An user need to rice an action which leads to necessary state change */
-  fun <T : Any?> trigger(actionId: String, calculateState: () -> T, checkState: (T, T) -> Boolean) {
-    val check = getCheck(calculateState, checkState)
-    steps.add(recorder.futureActionAndCheckAround(actionId, check))
-  }
+  abstract fun <T : Any?> trigger(actionId: String, calculateState: TaskRuntimeContext.() -> T, checkState: TaskRuntimeContext.(T, T) -> Boolean)
 
   /** An user need to rice an action which leads to appropriate end state */
-  fun trigger(actionId: String, checkState: () -> Boolean) {
+  fun trigger(actionId: String, checkState: TaskRuntimeContext.() -> Boolean) {
     trigger(actionId, { Unit }, { _, _ -> checkState() })
   }
 
@@ -63,76 +72,126 @@ class TaskContext(val lesson: KLesson, val editor: Editor, val project: Project,
    * Check that IDE state is as expected
    * In some rare cases DSL could wish to complete a future by itself
    */
-  fun stateCheck(checkState: () -> Boolean): CompletableFuture<Boolean> {
-    val future = recorder.futureCheck { checkState() }
-    steps.add(future)
-    return future
-  }
+  abstract fun stateCheck(checkState: TaskRuntimeContext.() -> Boolean): CompletableFuture<Boolean>
 
   /**
    * Check that IDE state is fit
    * @return A feature with value associated with fit state
    */
-  fun <T : Any> stateRequired(requiredState: () -> T?): Future<T> {
-    val result = CompletableFuture<T>()
-    val future = recorder.futureCheck {
-      val state = requiredState()
-      if (state != null) {
-        result.complete(state)
-        true
-      }
-      else {
-        false
-      }
+  abstract fun <T : Any> stateRequired(requiredState: TaskRuntimeContext.() -> T?): Future<T>
+
+  abstract fun addFutureStep(p: DoneStepContext.() -> Unit)
+
+  abstract fun addStep(step: CompletableFuture<Boolean>)
+
+  abstract fun test(action: TaskTestContext.() -> Unit)
+
+  fun triggerByFoundPathAndHighlight(highlightBorder: Boolean = true, highlightInside: Boolean = false, checkPath: TaskRuntimeContext.(tree: JTree, path: TreePath) -> Boolean) {
+    triggerByFoundPathAndHighlight(LearningUiHighlightingManager.HighlightingOptions(highlightBorder, highlightInside)) { tree ->
+      TreeUtil.visitVisibleRows(tree, TreeVisitor { path ->
+        if (checkPath(tree, path)) TreeVisitor.Action.INTERRUPT else TreeVisitor.Action.CONTINUE
+      })
     }
-    steps.add(future)
-    return result
   }
 
-  val focusOwner: Component?
-    get() = IdeFocusManager.getInstance(project).focusOwner
-
-  private fun <T : Any?> getCheck(calculateState: () -> T, checkState: (T, T) -> Boolean): Check {
-    return object : Check {
-      var state: T? = null
-
-      override fun before() {
-        state = calculateAction()
+  // This method later can be converted to the public (But I'm not sure it will be ever needed in a such form)
+  private fun triggerByFoundPathAndHighlight(options: LearningUiHighlightingManager.HighlightingOptions, checkTree: TaskRuntimeContext.(tree: JTree) -> TreePath?) {
+    @Suppress("DEPRECATION")
+    triggerByUiComponentAndHighlight {
+      val delay = Timeout.timeout(500, TimeUnit.MILLISECONDS)
+      val tree = LearningUiUtil.findShowingComponentWithTimeout(null, JTree::class.java, delay) {
+        checkTree(it) != null
       }
-
-      override fun check(): Boolean = state?.let { checkState(it, calculateAction()) } ?: false
-
-      override fun set(project: Project, editor: Editor) {
-        // do nothing
-      }
-
-      // Some checks are needed to be performed in EDT thread
-      // For example, selection information  could not be got (for some magic reason) from another thread
-      // Also we need to commit document
-      private fun calculateAction() = WriteAction.computeAndWait<T, RuntimeException> {
-        PsiDocumentManager.getInstance(project).commitDocument(editor.document)
-        calculateState()
+      return@triggerByUiComponentAndHighlight {
+        LearningUiHighlightingManager.highlightJTreeItem(tree, options) {
+          checkTree(tree)
+        }
+        tree
       }
     }
   }
 
-  fun test(action: TaskTestContext.() -> Unit) {
-    testActions.add(Runnable {
-      DumbService.getInstance(project).waitForSmartMode()
-      TaskTestContext(this).action()
-    })
+  inline fun <reified T: Component> triggerByPartOfComponent(highlightBorder: Boolean = true, highlightInside: Boolean = false, crossinline rectangle: TaskRuntimeContext.(T) -> Rectangle?) {
+    val options = LearningUiHighlightingManager.HighlightingOptions(highlightBorder, highlightInside)
+    @Suppress("DEPRECATION")
+    triggerByUiComponentAndHighlight {
+      val delay = Timeout.timeout(500, TimeUnit.MILLISECONDS)
+      val whole = LearningUiUtil.findShowingComponentWithTimeout(null, T::class.java, delay) {
+        rectangle(it) != null
+      }
+      return@triggerByUiComponentAndHighlight {
+        LearningUiHighlightingManager.highlightPartOfComponent(whole, options) { rectangle(it) }
+        whole
+      }
+    }
   }
 
-  fun action(id: String): String {
-    return "<action>$id</action>"
+  fun triggerByListItemAndHighlight(highlightBorder: Boolean = true, highlightInside: Boolean = false, checkList: TaskRuntimeContext.(item: Any) -> Boolean) {
+    triggerByFoundListItemAndHighlight(LearningUiHighlightingManager.HighlightingOptions(highlightBorder, highlightInside)) { ui: JList<*> ->
+      LessonUtil.findItem(ui) { checkList(it) }
+    }
   }
 
-  fun code(sourceSample: String): String {
+  // This method later can be converted to the public (But I'm not sure it will be ever needed in a such form
+  private fun triggerByFoundListItemAndHighlight(options: LearningUiHighlightingManager.HighlightingOptions, checkList: TaskRuntimeContext.(list: JList<*>) -> Int?) {
+    @Suppress("DEPRECATION")
+    triggerByUiComponentAndHighlight {
+      val delay = Timeout.timeout(500, TimeUnit.MILLISECONDS)
+      val list = LearningUiUtil.findShowingComponentWithTimeout(null, JList::class.java, delay) l@{
+        val index = checkList(it)
+        index != null && it.visibleRowCount > index
+      }
+      return@triggerByUiComponentAndHighlight {
+        LearningUiHighlightingManager.highlightJListItem(list, options) {
+          checkList(list)
+        }
+        list
+      }
+    }
+  }
+
+  inline fun <reified ComponentType : Component> triggerByUiComponentAndHighlight(
+    highlightBorder: Boolean = true, highlightInside: Boolean = true, crossinline finderFunction: TaskRuntimeContext.(ComponentType) -> Boolean
+  ) {
+    @Suppress("DEPRECATION")
+    triggerByUiComponentAndHighlight l@{
+      val delay = Timeout.timeout(500, TimeUnit.MILLISECONDS)
+      val component = LearningUiUtil.findShowingComponentWithTimeout(null, ComponentType::class.java, delay) {
+        finderFunction(it)
+      }
+      return@l {
+        val options = LearningUiHighlightingManager.HighlightingOptions(highlightBorder, highlightInside)
+        LearningUiHighlightingManager.highlightComponent(component, options)
+        component
+      }
+    }
+  }
+
+  @Deprecated("It is auxiliary method with explicit class parameter. Use inlined short form instead")
+  abstract fun triggerByUiComponentAndHighlight(findAndHighlight: TaskRuntimeContext.() -> (() -> Component))
+
+  /** Show shortcut for [actionId] inside lesson step message */
+  open fun action(actionId: String): String  {
+    return "<action>$actionId</action>"
+  }
+
+  /** Highlight as code inside lesson step message */
+  open fun code(sourceSample: String): String  {
     return "<code>${StringUtil.escapeXmlEntities(sourceSample)}</code>"
   }
 
-  companion object {
-    @Volatile
-    var inTestMode: Boolean = false
+  /** Show an [icon] inside lesson step message */
+  open fun icon(icon: Icon): String  {
+    val index = LearningUiManager.getIconIndex(icon)
+    return "<icon_idx>$index</icon_idx>"
+  }
+
+  class DoneStepContext(val future: CompletableFuture<Boolean>, rt: TaskRuntimeContext): TaskRuntimeContext(rt) {
+    fun completeStep() {
+      assert(ApplicationManager.getApplication().isDispatchThread)
+      if (!future.isDone && !future.isCancelled) {
+        future.complete(true)
+      }
+    }
   }
 }

@@ -19,7 +19,7 @@ import com.intellij.psi.util.CachedValueProvider.Result
 import com.intellij.psi.util.CachedValuesManager
 import com.intellij.psi.util.PsiModificationTracker
 import com.intellij.util.containers.MultiMap
-import one.util.streamex.StreamEx
+import org.jetbrains.vuejs.index.VUE_MODULE
 import org.jetbrains.vuejs.model.source.VueSourceGlobal
 import org.jetbrains.vuejs.model.webtypes.registry.VueWebTypesRegistry
 import java.util.concurrent.ConcurrentHashMap
@@ -43,7 +43,7 @@ internal class VueGlobalImpl(override val project: Project, private val packageJ
   override val delegate
     get() = CachedValuesManager.getManager(project).getCachedValue(this) {
       packageJson?.let { packageJson -> VueWebTypesRegistry.createWebTypesGlobal(project, packageJson, this) }
-      ?: Result.create(null as VueGlobal?, packageJson)
+      ?: Result.create(null as VueGlobal?, VirtualFileManager.VFS_STRUCTURE_MODIFICATIONS)
     } ?: mySourceGlobal
 
   private fun getElementToParentMap(): MultiMap<VueScopeElement, VueEntitiesContainer> =
@@ -56,7 +56,7 @@ internal class VueGlobalImpl(override val project: Project, private val packageJ
 
   private fun buildPluginsList(): Result<List<VuePlugin>> {
     val result = mutableListOf<VuePlugin>()
-    val dependencies = mutableListOf<Any>()
+    val dependencies = mutableSetOf<Any>()
     val enabledPackagesResult = VueWebTypesRegistry.instance.webTypesEnabledPackages
     val enabledPackages = enabledPackagesResult.value.asSequence()
       .flatMap { pkgName ->
@@ -66,13 +66,20 @@ internal class VueGlobalImpl(override val project: Project, private val packageJ
       }
       .toSet()
     dependencies.add(VirtualFileManager.VFS_STRUCTURE_MODIFICATIONS)
-    dependencies.add(enabledPackagesResult.dependencyItems)
+    dependencies.addAll(enabledPackagesResult.dependencyItems)
     dependencies.add(NodeModulesDirectoryManager.getInstance(project).nodeModulesDirChangeTracker)
     packageJson?.let {
       PackageJsonUtil.processUpPackageJsonFilesInAllScope(it) { candidate ->
         result.addAll(getPlugins(candidate, enabledPackages))
         dependencies.add(candidate)
         true
+      }
+    }
+    // ensure we have Vue plugin
+    if (result.find { it.moduleName == VUE_MODULE } == null) {
+      VueWebTypesRegistry.createWebTypesPlugin(project, VUE_MODULE, null, this).let {
+        dependencies.addAll(it.dependencyItems)
+        it.value?.let (result::add)
       }
     }
     return Result.create(result, *dependencies.toTypedArray())
@@ -82,7 +89,7 @@ internal class VueGlobalImpl(override val project: Project, private val packageJ
                          enabledPackages: Set<String>): List<VuePlugin> =
     NodeModuleUtil.findNodeModulesByPackageJson(packageJson)
       ?.let { getVuePluginPackageJsons(it, enabledPackages) }
-      ?.filter { isVueLibrary(it) }
+      ?.filter { isVueLibrary(it, enabledPackages) }
       ?.map { VuePluginImpl(project, it) }
       ?.toList()
     ?: emptyList()
@@ -110,15 +117,15 @@ internal class VueGlobalImpl(override val project: Project, private val packageJ
 
   private fun buildElementToParentMap(): MultiMap<VueScopeElement, VueEntitiesContainer> {
     val result = MultiMap<VueScopeElement, VueEntitiesContainer>()
-    StreamEx.of<VueEntitiesContainer>(this)
-      .append(plugins)
-      .append(apps)
+    sequenceOf(this)
+      .plus(plugins)
+      .plus(apps)
       .forEach { container ->
-        StreamEx.of(container.components.values,
-                    container.directives.values,
-                    container.filters.values,
-                    container.mixins)
-          .flatMap(Collection<VueScopeElement>::stream)
+        sequenceOf(container.components.values,
+                   container.directives.values,
+                   container.filters.values,
+                   container.mixins)
+          .flatMap { it.asSequence() }
           .forEach { el -> result.putValue(el, container) }
       }
     return result
@@ -187,9 +194,10 @@ internal class VueGlobalImpl(override val project: Project, private val packageJ
       return result
     }
 
-    private fun isVueLibrary(it: VirtualFile): Boolean {
+    private fun isVueLibrary(it: VirtualFile, enabledPackages: Set<String>): Boolean {
       val data = PackageJsonUtil.getOrCreateData(it)
       return data.name == "vue"
+             || enabledPackages.contains(data.name)
              || data.containsOneOfDependencyOfAnyType("vue-loader", "vue-latest", "vue", "vue-template-compiler")
              || data.webTypes != null
     }

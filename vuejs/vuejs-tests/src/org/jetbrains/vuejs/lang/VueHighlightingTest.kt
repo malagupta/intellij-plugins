@@ -1,27 +1,21 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.vuejs.lang
 
-import com.intellij.codeInsight.daemon.impl.analysis.XmlUnboundNsPrefixInspection
-import com.intellij.codeInspection.htmlInspections.*
-import com.intellij.htmltools.codeInspection.htmlInspections.HtmlDeprecatedAttributeInspection
-import com.intellij.htmltools.codeInspection.htmlInspections.HtmlDeprecatedTagInspection
-import com.intellij.lang.javascript.JSBundle
 import com.intellij.lang.javascript.JSTestUtils.testWithinLanguageLevel
+import com.intellij.lang.javascript.JavaScriptBundle
 import com.intellij.lang.javascript.dialects.JSLanguageLevel
-import com.intellij.lang.javascript.inspections.*
-import com.intellij.lang.typescript.inspections.TypeScriptUnresolvedFunctionInspection
-import com.intellij.lang.typescript.inspections.TypeScriptUnresolvedVariableInspection
-import com.intellij.lang.typescript.inspections.TypeScriptValidateTypesInspection
+import com.intellij.lang.javascript.inspections.JSUnusedGlobalSymbolsInspection
 import com.intellij.openapi.application.PathManager
+import com.intellij.psi.css.inspections.invalid.CssInvalidFunctionInspection
 import com.intellij.psi.css.inspections.invalid.CssInvalidPseudoSelectorInspection
 import com.intellij.spellchecker.inspections.SpellCheckingInspection
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.testFramework.fixtures.CodeInsightTestFixture
 import com.intellij.util.ThrowableRunnable
-import com.intellij.xml.util.CheckEmptyTagInspection
 import com.intellij.xml.util.CheckTagEmptyBodyInspection
-import com.sixrr.inspectjs.validity.ThisExpressionReferencesGlobalObjectJSInspection
 import junit.framework.TestCase
+import org.jetbrains.plugins.scss.inspections.SassScssResolvedByNameOnlyInspection
+import org.jetbrains.plugins.scss.inspections.SassScssUnresolvedVariableInspection
 import org.jetbrains.vuejs.lang.html.VueFileType
 
 class VueHighlightingTest : BasePlatformTestCase() {
@@ -29,26 +23,7 @@ class VueHighlightingTest : BasePlatformTestCase() {
 
   override fun setUp() {
     super.setUp()
-    myFixture.enableInspections(HtmlDeprecatedAttributeInspection(),
-                                HtmlDeprecatedTagInspection(),
-                                HtmlUnknownBooleanAttributeInspectionBase(),
-                                HtmlUnknownAttributeInspection(),
-                                HtmlUnknownTagInspection(),
-                                RequiredAttributesInspection(),
-                                JSUnusedLocalSymbolsInspection(),
-                                JSAnnotatorInspection(),
-                                JSUnresolvedVariableInspection(),
-                                JSUnresolvedFunctionInspection(),
-                                JSValidateTypesInspection(),
-                                ThisExpressionReferencesGlobalObjectJSInspection(),
-                                JSValidateTypesInspection(),
-                                JSIncompatibleTypesComparisonInspection(),
-                                TypeScriptValidateTypesInspection(),
-                                TypeScriptUnresolvedVariableInspection(),
-                                TypeScriptUnresolvedFunctionInspection(),
-                                JSCheckFunctionSignaturesInspection(),
-                                XmlUnboundNsPrefixInspection(),
-                                CheckEmptyTagInspection())
+    myFixture.enableInspections(VueInspectionsProvider())
   }
 
   fun testDirectivesWithoutParameters() {
@@ -746,7 +721,7 @@ Vue.component('global-comp-literal', {
 </template>
 """)
     val intentions = myFixture.filterAvailableIntentions(
-      JSBundle.message("javascript.create.variable.intention.name", "someNonExistingReference2389"))
+      JavaScriptBundle.message("javascript.create.variable.intention.name", "someNonExistingReference2389"))
     TestCase.assertTrue(intentions.isEmpty())
   }
 
@@ -756,7 +731,8 @@ Vue.component('global-comp-literal', {
 <div @click="<caret>notExistingF()"></div>
 </template>
 """)
-    val intentions = myFixture.filterAvailableIntentions(JSBundle.message("javascript.create.function.intention.name", "notExistingF"))
+    val intentions = myFixture.filterAvailableIntentions(
+      JavaScriptBundle.message("javascript.create.function.intention.name", "notExistingF"))
     TestCase.assertTrue(intentions.isEmpty())
   }
 
@@ -766,7 +742,8 @@ Vue.component('global-comp-literal', {
 <div @click="new <caret>NotExistingClass().a()"></div>
 </template>
 """)
-    val intentions = myFixture.filterAvailableIntentions(JSBundle.message("javascript.create.class.intention.name", "NotExistingClass"))
+    val intentions = myFixture.filterAvailableIntentions(
+      JavaScriptBundle.message("javascript.create.class.intention.name", "NotExistingClass"))
     TestCase.assertTrue(intentions.isEmpty())
   }
 
@@ -811,8 +788,7 @@ Vue.component('global-comp-literal', {
   }
 
   fun testBuiltinTagsHighlighting() {
-    createPackageJsonWithVueDependency(myFixture, "")
-    myFixture.copyDirectoryToProject("../types/node_modules", "./node_modules")
+    myFixture.configureDependencies(VueTestModule.VUE_2_5_3)
     myFixture.configureByText("BuiltinTagsHighlighting.vue", """
 <template>
     <transition-group>
@@ -1227,7 +1203,6 @@ import BComponent from 'b-component'
   }
 
   fun testEndTagNotForbidden() {
-    myFixture.enableInspections(HtmlExtraClosingTagInspection::class.java)
     myFixture.addFileToProject("input.vue", "<script>export default {name: 'Input'}</script>")
     myFixture.configureByText("foo.vue", """<template> <Input> </Input> </template>
       <script>
@@ -1238,7 +1213,6 @@ import BComponent from 'b-component'
   }
 
   fun testColonInEventName() {
-    myFixture.enableInspections(XmlUnboundNsPrefixInspection::class.java)
     myFixture.configureByText("foo.vue", """
       |<template>
       |  <div @update:property=''></div>
@@ -1262,27 +1236,28 @@ namespace <info descr="moduleName">space</info> {
     var <info descr="static field">i</info>:<info descr="exported class">SpaceInterface</info>;
 }
 import <info descr="exported class">SpaceInterface</info> = <info descr="moduleName">space</info>.<info descr="exported class">SpaceInterface</info>;
-var <info descr="local variable">i</info>:<info descr="exported class">SpaceInterface</info>;
+var <info descr="global variable">i</info>:<info descr="exported class">SpaceInterface</info>;
 </script>
 """)
     myFixture.checkHighlighting(false, true, true)
   }
 
   fun testVSlotSyntax() {
+    // TODO add special inspection for unused slot scope parameters - WEB-43893
     myFixture.configureByText("c-component.vue", """
 <template>
   <div>
     <div v-slot:name="propName">
-        {{ propName }}
+        {{ propName + <weak_warning descr="Unresolved variable or type wrongName">wrongName</weak_warning> }}
     </div>
-    <div v-slot:name="{prop1, <warning descr="Unused local variable prop2">prop2</warning>}">
-        {{ prop1 }}
+    <div v-slot:name="{prop1, prop2}">
+        {{ prop1 + <weak_warning descr="Unresolved variable or type wrongName">wrongName</weak_warning>}}
     </div>
     <div v-slot:name></div>
-    <div v-slot="<warning descr="Unused local variable propName">propName</warning>"></div>
+    <div v-slot="propName"></div>
     <div v-slot></div>
     
-    <div #name="<warning descr="Unused local variable propName">propName</warning>"></div>
+    <div #name="propName"></div>
     <div #name></div>
     
     <div <warning descr="Attribute v-slots:name is not allowed here">v-slots:name</warning>="<weak_warning descr="Unresolved variable or type propName">propName</weak_warning>"></div>
@@ -1290,7 +1265,7 @@ var <info descr="local variable">i</info>:<info descr="exported class">SpaceInte
     <div <warning descr="Attribute v-slots is not allowed here">v-slots</warning>="<weak_warning descr="Unresolved variable or type propName">propName</weak_warning>"></div>
     <div <warning descr="Attribute v-slots is not allowed here">v-slots</warning>></div>
     
-    <div <warning descr="Attribute # is not allowed here">#</warning>="<warning descr="Unused local variable propName">propName</warning>"></div>
+    <div <warning descr="Attribute # is not allowed here">#</warning>="propName"></div>
     <div <warning descr="Attribute # is not allowed here">#</warning>></div>
   </div>
 </template>
@@ -1299,20 +1274,21 @@ var <info descr="local variable">i</info>:<info descr="exported class">SpaceInte
   }
 
   fun testSlotSyntax() {
+    // TODO add special inspection for unused slot scope parameters - WEB-43893
     myFixture.configureByText("c-component.vue", """
 <template>
   <div>
     <div slot="name" slot-scope="propName">
-        {{ propName }}
+        {{ propName + <weak_warning descr="Unresolved variable or type wrongName">wrongName</weak_warning> }}
     </div>
-    <div slot="name" slot-scope="{prop1, <warning descr="Unused local variable prop2">prop2</warning>}">
+    <div slot="name" slot-scope="{prop1, prop2}">
         {{ prop1 }}
     </div>
     <div slot="name"></div>
-    <div slot-scope="<warning descr="Unused local variable propName">propName</warning>"></div>
+    <div slot-scope="propName"></div>
     <div slot <warning descr="Wrong attribute value">slot-scope</warning>></div>
     <div <warning descr="Attribute scope is not allowed here">scope</warning>="foo"></div>
-    <template scope="<warning descr="Unused local variable foo">foo</warning>"></template>
+    <template scope="foo"></template>
   </div>
 </template>
     """)
@@ -1320,7 +1296,7 @@ var <info descr="local variable">i</info>:<info descr="exported class">SpaceInte
   }
 
   fun testVueExtendSyntax() {
-    myFixture.copyDirectoryToProject("../types/node_modules", "./node_modules")
+    myFixture.configureDependencies(VueTestModule.VUE_2_5_3)
     myFixture.configureByText("a-component.vue", """<script>export default Vue.extend({props:{msg: String}})</script>""")
     myFixture.configureByText("b-component.vue", """
       <template>
@@ -1343,8 +1319,7 @@ var <info descr="local variable">i</info>:<info descr="exported class">SpaceInte
   }
 
   fun testBootstrapVue() {
-    createPackageJsonWithVueDependency(myFixture, "\"bootstrap-vue\": \"latest\"")
-    myFixture.copyDirectoryToProject("../libs/bootstrap-vue/node_modules", "./node_modules")
+    myFixture.configureDependencies(VueTestModule.BOOTSTRAP_VUE_2_0_0_RC_11)
     myFixture.configureByText("b-component.vue", """
       <template>
         <b-alert show>Foo</b-alert>
@@ -1436,8 +1411,7 @@ var <info descr="local variable">i</info>:<info descr="exported class">SpaceInte
   }
 
   fun testDirectiveWithModifiers() {
-    createPackageJsonWithVueDependency(myFixture, "\"bootstrap-vue\": \"latest\"")
-    myFixture.copyDirectoryToProject("../libs/bootstrap-vue/node_modules", "./node_modules")
+    myFixture.configureDependencies(VueTestModule.BOOTSTRAP_VUE_2_0_0_RC_11)
     myFixture.configureByText("a-component.vue", """
       <template>
         <div>
@@ -1498,12 +1472,77 @@ var <info descr="local variable">i</info>:<info descr="exported class">SpaceInte
   }
 
   fun testPrivateMembersHighlighting() {
-    myFixture.enableInspections(JSUnusedGlobalSymbolsInspection::class.java,
-                                JSUnusedLocalSymbolsInspection::class.java)
+    myFixture.enableInspections(JSUnusedGlobalSymbolsInspection::class.java)
     myFixture.configureByFile("privateFields.vue")
     myFixture.checkHighlighting()
   }
 
+  fun testMultipleScriptTagsInHTML() {
+    createPackageJsonWithVueDependency(myFixture)
+    myFixture.configureByFile("htmlMultipleScripts.html")
+    myFixture.checkHighlighting()
+  }
+
+  fun testMultipleScriptTagsInVue() {
+    createPackageJsonWithVueDependency(myFixture)
+    myFixture.configureByFile("vueMultipleScripts.vue")
+    myFixture.checkHighlighting()
+  }
+
+  fun testCompositionApiBasic() {
+    myFixture.configureDependencies(VueTestModule.COMPOSITION_API_0_4_0)
+    myFixture.configureByFile("compositeComponent1.vue")
+    myFixture.checkHighlighting()
+    myFixture.configureByFile("compositeComponent2.vue")
+    myFixture.checkHighlighting()
+  }
+
+  fun testSimpleVueHtml() {
+    for (suffix in listOf("cdn", "cdn2", "cdn3", "cdn.js", "cdn@", "js", "deep")) {
+      myFixture.configureByFile("simple-vue/simple-vue-${suffix}.html")
+      myFixture.checkHighlighting(true, false, true)
+    }
+  }
+
+  fun testCommonJSSupport() {
+    createPackageJsonWithVueDependency(myFixture)
+    myFixture.configureByFile("module-exports.vue")
+    myFixture.checkHighlighting()
+  }
+
+  fun testComputedTypeTS() {
+    myFixture.configureDependencies(VueTestModule.VUE_2_6_10)
+    myFixture.configureByFile("computedTypeTS.vue")
+    myFixture.checkHighlighting()
+  }
+
+  fun testComputedTypeJS() {
+    myFixture.configureDependencies(VueTestModule.VUE_2_6_10)
+    myFixture.configureByFile("computedTypeJS.vue")
+    myFixture.checkHighlighting()
+  }
+
+  fun testDataTypeTS() {
+    myFixture.configureDependencies(VueTestModule.VUE_2_6_10)
+    myFixture.configureByFile("dataTypeTS.vue")
+    myFixture.checkHighlighting()
+  }
+
+  fun testScssBuiltInModules() {
+    myFixture.enableInspections(CssInvalidFunctionInspection::class.java,
+                                SassScssResolvedByNameOnlyInspection::class.java,
+                                SassScssUnresolvedVariableInspection::class.java)
+    myFixture.configureByFile(getTestName(true) + ".vue")
+    myFixture.checkHighlighting()
+  }
+
+  fun testSassBuiltInModules() {
+    myFixture.enableInspections(CssInvalidFunctionInspection::class.java,
+                                SassScssResolvedByNameOnlyInspection::class.java,
+                                SassScssUnresolvedVariableInspection::class.java)
+    myFixture.configureByFile(getTestName(true) + ".vue")
+    myFixture.checkHighlighting()
+  }
 }
 
 fun createTwoClassComponents(fixture: CodeInsightTestFixture, tsLang: Boolean = false) {

@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.javascript.flex.build;
 
 import com.intellij.compiler.CompilerWorkspaceConfiguration;
@@ -616,14 +616,14 @@ public class ValidateFlashConfigurationsPrecompileTask implements CompileTask {
             @Override
             public void hyperlinkUpdate(@NotNull final Notification notification, @NotNull final HyperlinkEvent event) {
               notification.expire();
-              ShowSettingsUtil.getInstance().showSettingsDialog(project, CompilerBundle.message("compiler.configurable.display.name"));
+              ShowSettingsUtil.getInstance().showSettingsDialog(project, JavaCompilerBundle.message("compiler.configurable.display.name"));
             }
           };
           new Notification(FLASH_COMPILER_GROUP_ID, FlexBundle.message("parallel.compilation.enabled"),
                            FlexBundle.message("see.settings.compiler"), NotificationType.INFORMATION, listener1).notify(project);
         }
         else if ("open".equals(event.getDescription())) {
-          ShowSettingsUtil.getInstance().showSettingsDialog(project, CompilerBundle.message("compiler.configurable.display.name"));
+          ShowSettingsUtil.getInstance().showSettingsDialog(project, JavaCompilerBundle.message("compiler.configurable.display.name"));
         }
       }
     };
@@ -680,7 +680,7 @@ public class ValidateFlashConfigurationsPrecompileTask implements CompileTask {
     }
   }
 
-  private static class BCProblemNavigatable implements Navigatable {
+  private static final class BCProblemNavigatable implements Navigatable {
     @NotNull private final Module myModule;
     @NotNull private final String myBCNme;
     @NotNull private final FlashProjectStructureProblem myProblem;

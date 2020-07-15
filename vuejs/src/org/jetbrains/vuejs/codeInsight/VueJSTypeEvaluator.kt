@@ -47,9 +47,10 @@ class VueJSTypeEvaluator(context: JSEvaluateContext, processor: JSTypeProcessor,
             when {
               type != null -> addType(type, expression)
               useTypeScriptKeyofType(collectionType) -> addType(
-                TypeScriptIndexedAccessJSTypeImpl(collectionType,
-                                                  TypeScriptTypeOperatorJSTypeImpl(collectionType, collectionType.source),
-                                                  collectionType.source),
+                JSCompositeTypeFactory.createIndexedAccessType(collectionType,
+                                                               JSCompositeTypeFactory.createKeyOfType(
+                                                                 collectionType, collectionType.source),
+                                                               collectionType.source),
                 expression)
               else -> addVForVarType(
                 collectionExpr, *getComponentTypeFromArrayExpression(expression, collectionExpr).toTypedArray())
@@ -82,7 +83,8 @@ class VueJSTypeEvaluator(context: JSEvaluateContext, processor: JSTypeProcessor,
             when {
               indexerTypes.isNotEmpty() -> addVForVarType(collectionExpr, *indexerTypes.toTypedArray())
               useTypeScriptKeyofType(collectionType) -> addType(
-                TypeScriptTypeOperatorJSTypeImpl(collectionType, collectionType.source),
+                JSCompositeTypeFactory.createKeyOfType(collectionType,
+                                                                                                                 collectionType.source),
                 collectionExpr)
               else -> addVForVarType(collectionExpr, ::JSStringType, ::JSNumberType)
             }
@@ -101,7 +103,8 @@ class VueJSTypeEvaluator(context: JSEvaluateContext, processor: JSTypeProcessor,
 
   private fun addVForVarType(source: PsiElement, vararg types: JSType) {
     val typeSource = JSTypeSourceFactory.createTypeSource(source, false)
-    val commonType = (JSTupleTypeImpl(typeSource, types.toMutableList(), false, 0, false).toArrayType(false) as JSArrayType).type
+    val commonType = (JSTupleTypeImpl(typeSource, types.toMutableList(), emptyList(), false, 0, false).toArrayType(
+      false) as JSArrayType).type
     addType(commonType, source, true)
   }
 

@@ -21,13 +21,16 @@ import com.intellij.openapi.util.Pair
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDocumentManager
 import training.check.Check
+import training.util.DataLoader
 import java.awt.KeyboardFocusManager
 import java.awt.event.KeyEvent
 import java.awt.event.MouseEvent
+import java.beans.PropertyChangeListener
 import java.util.concurrent.CompletableFuture
 
 class ActionsRecorder(private val project: Project,
-                      private val document: Document) : Disposable {
+                      private val document: Document,
+                      parentDisposable: Disposable) : Disposable {
 
   private val documentListeners: MutableList<DocumentListener> = mutableListOf()
   // TODO: do we really need a lot of listeners?
@@ -44,8 +47,12 @@ class ActionsRecorder(private val project: Project,
   // TODO: I suspect that editor listener could be replaced by command listener. Need to check it
   private var editorListener: FileEditorManagerListener? = null
 
+  private var checkCallback: (() -> Unit)? = null
+
+  private var focusChangeListener: PropertyChangeListener? = null
+
   init {
-    Disposer.register(project, this)
+    Disposer.register(parentDisposable, this)
 
     // We could not unregister a listener (it will be done in dispose)
     // So the simple solution is to use a proxy
@@ -173,6 +180,12 @@ class ActionsRecorder(private val project: Project,
     return future
   }
 
+  fun futureAction(checkId: (String) -> Boolean): CompletableFuture<Boolean> {
+    val future: CompletableFuture<Boolean> = CompletableFuture()
+    registerActionListener { caughtActionId, _ -> if (checkId(caughtActionId)) future.complete(true) }
+    return future
+  }
+
   fun futureListActions(listOfActions: List<String>): CompletableFuture<Boolean> {
     val future: CompletableFuture<Boolean> = CompletableFuture()
     val mutableListOfActions = listOfActions.toMutableList()
@@ -200,6 +213,7 @@ class ActionsRecorder(private val project: Project,
         future.complete(true)
       }
     }
+    checkCallback = check
 
     addKeyEventListener { check() }
     document.addDocumentListener(createDocumentListener { check() })
@@ -210,11 +224,16 @@ class ActionsRecorder(private val project: Project,
       }
     })
 
-    KeyboardFocusManager.getCurrentKeyboardFocusManager().addPropertyChangeListener("focusOwner") {
-      check()
+    PropertyChangeListener { check() }.let {
+      KeyboardFocusManager.getCurrentKeyboardFocusManager().addPropertyChangeListener("focusOwner", it)
+      focusChangeListener = it
     }
 
     return future
+  }
+
+  fun tryToCheckCallback() {
+    checkCallback?.let { it() }
   }
 
   private fun addSimpleCommandListener(check: () -> Unit) {
@@ -274,7 +293,14 @@ class ActionsRecorder(private val project: Project,
     eventDispatchers.clear()
     commandListener = null
     editorListener = null
+    focusChangeListener?.let { KeyboardFocusManager.getCurrentKeyboardFocusManager().removePropertyChangeListener("focusOwner", it) }
   }
 
-  private fun getActionId(action: AnAction): String = ActionManager.getInstance().getId(action) ?: action.javaClass.name
+  private fun getActionId(action: AnAction): String {
+    val actionId = ActionManager.getInstance().getId(action) ?: action.javaClass.name
+    if (DataLoader.liveMode) {
+      println(actionId)
+    }
+    return actionId
+  }
 }

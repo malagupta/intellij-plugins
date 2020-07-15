@@ -23,6 +23,7 @@ import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.introduce.inplace.InplaceVariableIntroducer;
 import com.intellij.refactoring.introduce.inplace.OccurrencesChooser;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
+import com.intellij.openapi.util.NlsContexts;
 import com.jetbrains.lang.dart.DartBundle;
 import com.jetbrains.lang.dart.DartComponentType;
 import com.jetbrains.lang.dart.DartTokenTypes;
@@ -77,7 +78,7 @@ public abstract class DartIntroduceHandler implements RefactoringActionHandler {
 
   protected final String myDialogTitle;
 
-  public DartIntroduceHandler(@NotNull final String dialogTitle) {
+  public DartIntroduceHandler(@NotNull @NlsContexts.DialogTitle String dialogTitle) {
     myDialogTitle = dialogTitle;
   }
 

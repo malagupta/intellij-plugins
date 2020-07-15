@@ -2,8 +2,7 @@ package org.jetbrains.vuejs.lang
 
 import com.intellij.lang.javascript.JSAbstractDocumentationTest
 import com.intellij.openapi.application.PathManager
-import com.intellij.testFramework.EdtTestUtil
-import com.intellij.util.ThrowableRunnable
+import com.intellij.testFramework.runInEdtAndWait
 import one.util.streamex.StreamEx
 import org.junit.After
 import org.junit.Before
@@ -23,17 +22,9 @@ class VueWebTypesDocumentationTest : JSAbstractDocumentationTest() {
   override fun getExtension(): String = "vue"
 
   @Before
-  public override fun setUp() {
-    super.setUp()
-    EdtTestUtil.runInEdtAndWait(ThrowableRunnable {
-      createPackageJsonWithVueDependency(myFixture, """"test-lib":"0.0.0"""")
-      myFixture.copyDirectoryToProject("node_modules", "node_modules")
-    })
-  }
-
-  @After
-  public override fun tearDown() {
-    EdtTestUtil.runInEdtAndWait(ThrowableRunnable { super.tearDown() })
+  fun before() {
+    createPackageJsonWithVueDependency(myFixture, """"test-lib":"0.0.0"""")
+    myFixture.copyDirectoryToProject("node_modules", "node_modules")
   }
 
   @Parameterized.Parameter
@@ -46,9 +37,7 @@ class VueWebTypesDocumentationTest : JSAbstractDocumentationTest() {
 
   @Test
   fun testTypes() {
-    EdtTestUtil.runInEdtAndWait(ThrowableRunnable {
-      defaultTest()
-    })
+    defaultTest()
   }
 
   companion object {

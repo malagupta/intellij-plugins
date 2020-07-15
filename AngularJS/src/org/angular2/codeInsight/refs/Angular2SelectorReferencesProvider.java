@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.angular2.codeInsight.refs;
 
 import com.intellij.javaee.ExternalResourceManagerEx;
@@ -25,7 +25,6 @@ import org.angular2.lang.html.psi.Angular2HtmlNgContentSelector;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collections;
 import java.util.List;
 
 import static com.intellij.util.ObjectUtils.doIfNotNull;
@@ -68,8 +67,7 @@ public class Angular2SelectorReferencesProvider extends PsiReferenceProvider {
     return result.toArray(PsiReference.EMPTY_ARRAY);
   }
 
-  @Nullable
-  private static XmlNSDescriptorEx getNamespaceDescriptor(@NotNull PsiFile baseFile) {
+  private static @Nullable XmlNSDescriptorEx getNamespaceDescriptor(@NotNull PsiFile baseFile) {
     return CachedValuesManager.getCachedValue(baseFile, () -> {
       String htmlNS = ExternalResourceManagerEx.getInstanceEx().getDefaultHtmlDoctype(baseFile.getProject());
       if (htmlNS.isEmpty()) {
@@ -86,13 +84,12 @@ public class Angular2SelectorReferencesProvider extends PsiReferenceProvider {
     });
   }
 
-  @Nullable
-  public static XmlElementDescriptor getElementDescriptor(@NotNull String name, @NotNull PsiFile baseFile) {
+  public static @Nullable XmlElementDescriptor getElementDescriptor(@NotNull String name, @NotNull PsiFile baseFile) {
     XmlNSDescriptorEx descriptorEx = getNamespaceDescriptor(baseFile);
     return descriptorEx != null ? descriptorEx.getElementDescriptor(name, XmlUtil.XHTML_URI) : null;
   }
 
-  private static class HtmlElementReference extends PsiReferenceBase<PsiElement> {
+  private static final class HtmlElementReference extends PsiReferenceBase<PsiElement> {
 
     private final Angular2DirectiveSelectorPsiElement mySelectorPsiElement;
 
@@ -101,22 +98,19 @@ public class Angular2SelectorReferencesProvider extends PsiReferenceProvider {
       mySelectorPsiElement = element;
     }
 
-    @Nullable
     @Override
-    public PsiElement resolve() {
+    public @Nullable PsiElement resolve() {
       XmlElementDescriptor descriptor = getElementDescriptor(mySelectorPsiElement.getName(), getElement().getContainingFile());
-      return descriptor != null ? descriptor.getDeclaration() : mySelectorPsiElement;
+      return descriptor != null ? descriptor.getDeclaration() : null;
     }
   }
 
-  private static class HtmlAttributeReference extends PsiPolyVariantReferenceBase<PsiElement> {
+  private static final class HtmlAttributeReference extends PsiPolyVariantReferenceBase<PsiElement> {
 
-    private final Angular2DirectiveSelectorPsiElement mySelectorPsiElement;
     private final String myElementName;
 
     private HtmlAttributeReference(@NotNull Angular2DirectiveSelectorPsiElement element, @Nullable String elementName) {
       super(element.getParent(), element.getTextRangeInParent(), true);
-      mySelectorPsiElement = element;
       myElementName = elementName;
     }
 
@@ -128,9 +122,9 @@ public class Angular2SelectorReferencesProvider extends PsiReferenceProvider {
         descriptor = getElementDescriptor("div", getElement().getContainingFile());
       }
       XmlAttributeDescriptor attributeDescriptor = descriptor != null ? descriptor.getAttributeDescriptor(getValue(), null) : null;
-      return PsiElementResolveResult.createResults(attributeDescriptor != null
-                                                   ? attributeDescriptor.getDeclarations()
-                                                   : Collections.singleton(mySelectorPsiElement));
+      return attributeDescriptor != null
+             ? PsiElementResolveResult.createResults(attributeDescriptor.getDeclarations())
+             : ResolveResult.EMPTY_ARRAY;
     }
   }
 }

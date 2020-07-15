@@ -40,11 +40,10 @@ import static com.intellij.util.ObjectUtils.notNull;
 
 public class AngularInaccessibleComponentMemberInAotModeInspection extends LocalInspectionTool {
 
-  @NotNull
   @Override
-  public PsiElementVisitor buildVisitor(@NotNull ProblemsHolder holder,
-                                        boolean isOnTheFly,
-                                        @NotNull LocalInspectionToolSession session) {
+  public @NotNull PsiElementVisitor buildVisitor(@NotNull ProblemsHolder holder,
+                                                 boolean isOnTheFly,
+                                                 @NotNull LocalInspectionToolSession session) {
     Language fileLang = holder.getFile().getLanguage();
     if (fileLang.isKindOf(Angular2HtmlLanguage.INSTANCE)
         || Angular2Language.INSTANCE.is(fileLang)) {
@@ -58,7 +57,7 @@ public class AngularInaccessibleComponentMemberInAotModeInspection extends Local
             if (clazz != null && resolved instanceof JSElement && accept(resolved)) {
               holder.registerProblem(
                 notNull(node.getReferenceNameElement(), node),
-                capitalize(Angular2Bundle.message("angular.inspection.template.aot.inaccessible.symbol",
+                capitalize(Angular2Bundle.message("angular.inspection.aot-inaccessible-member.message.template-symbol",
                                                   getAccessModifier((JSElement)resolved), getKind(resolved), getName(resolved))),
 
                 new AngularMakePublicQuickFix());
@@ -87,7 +86,7 @@ public class AngularInaccessibleComponentMemberInAotModeInspection extends Local
               notNull(member instanceof PsiNameIdentifierOwner
                       ? ((PsiNameIdentifierOwner)member).getNameIdentifier()
                       : null, member),
-              capitalize(Angular2Bundle.message("angular.inspection.component.aot.inaccessible.member",
+              capitalize(Angular2Bundle.message("angular.inspection.aot-inaccessible-member.message.member",
                                                 getAccessModifier(member), getKind(member), getName(member))),
               new AngularMakePublicQuickFix());
           }
@@ -114,15 +113,13 @@ public class AngularInaccessibleComponentMemberInAotModeInspection extends Local
     return new JSNamedElementPresenter(member).describeElementKind();
   }
 
-  @NotNull
-  private static String getAccessModifier(@NotNull JSElement member) {
+  private static @NotNull String getAccessModifier(@NotNull JSElement member) {
     return Optional.ofNullable(getPresentableAccessModifier(member))
       .map(JSVisibilityUtil.PresentableAccessModifier::getText)
       .orElse("");
   }
 
-  @NotNull
-  private static String getName(@NotNull PsiElement member) {
+  private static @NotNull String getName(@NotNull PsiElement member) {
     return notNull(member instanceof PsiNamedElement ? ((PsiNamedElement)member).getName() : null,
                    JSFormatUtil.getAnonymousElementPresentation());
   }

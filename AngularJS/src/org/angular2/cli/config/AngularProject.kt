@@ -1,6 +1,7 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.angular2.cli.config
 
+import com.fasterxml.jackson.annotation.JsonProperty
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 
@@ -17,11 +18,17 @@ abstract class AngularProject(internal val angularCliFolder: VirtualFile, intern
 
   abstract val stylePreprocessorIncludeDirs: List<VirtualFile>
 
+  abstract val cssResolveRootDir: VirtualFile?
+
+  abstract val tsConfigFile: VirtualFile?
+
   abstract val karmaConfigFile: VirtualFile?
 
   abstract val protractorConfigFile: VirtualFile?
 
   abstract val tsLintConfigurations: List<AngularLintConfiguration>
+
+  abstract val type: AngularProjectType?
 
   internal open fun resolveFile(filePath: String?): VirtualFile? {
     return filePath?.let { path ->
@@ -43,9 +50,11 @@ abstract class AngularProject(internal val angularCliFolder: VirtualFile, intern
     return """
       |${javaClass.simpleName} {
       |       name: ${name}
+      |       type: ${type}
       |       rootDir: ${rootDir}
       |       sourceDir: ${sourceDir}
       |       indexHtml: ${indexHtmlFile}
+      |       tsConfig: ${tsConfigFile}
       |       globalStyleSheets: ${globalStyleSheets}
       |       stylePreprocessorIncludeDirs: ${stylePreprocessorIncludeDirs}
       |       karmaConfigFile: ${karmaConfigFile}
@@ -55,6 +64,14 @@ abstract class AngularProject(internal val angularCliFolder: VirtualFile, intern
       |       ]
       |     }
     """.trimMargin()
+  }
+
+  enum class AngularProjectType {
+    @JsonProperty("application")
+    APPLICATION,
+
+    @JsonProperty("library")
+    LIBRARY
   }
 }
 
@@ -68,6 +85,8 @@ internal class AngularProjectImpl(override val name: String,
 
   override val sourceDir get() = ngProject.sourceRoot?.let { angularCliFolder.findFileByRelativePath(it) } ?: rootDir
 
+  override val cssResolveRootDir: VirtualFile? get() = rootDir
+
   override val indexHtmlFile get() = resolveFile(ngProject.targets?.build?.options?.index)
 
   override val globalStyleSheets
@@ -79,6 +98,9 @@ internal class AngularProjectImpl(override val name: String,
     get() = ngProject.targets?.build?.options?.stylePreprocessorOptions?.includePaths
               ?.mapNotNull { angularCliFolder.findFileByRelativePath(it) }
             ?: emptyList()
+
+  override val tsConfigFile: VirtualFile?
+    get() = resolveFile(ngProject.targets?.build?.options?.tsConfig)
 
   override val karmaConfigFile get() = resolveFile(ngProject.targets?.test?.options?.karmaConfig)
 
@@ -92,6 +114,9 @@ internal class AngularProjectImpl(override val name: String,
     }
     result
   } ?: emptyList<AngularLintConfiguration>()
+
+  override val type: AngularProjectType?
+    get() = ngProject.projectType
 
 }
 
@@ -107,6 +132,8 @@ internal class AngularLegacyProjectImpl(private val angularJson: AngularJson,
 
   override val sourceDir: VirtualFile? get() = app.root?.let { rootDir.findFileByRelativePath(it) }
 
+  override val cssResolveRootDir: VirtualFile? get() = sourceDir
+
   override val indexHtmlFile: VirtualFile? get() = resolveFile(app.index)
 
   override val globalStyleSheets: List<VirtualFile>
@@ -119,6 +146,9 @@ internal class AngularLegacyProjectImpl(private val angularJson: AngularJson,
               ?.mapNotNull { sourceDir?.findFileByRelativePath(it) }
             ?: emptyList()
 
+  override val tsConfigFile: VirtualFile?
+    get() = resolveFile(app.tsConfig)
+
   override val karmaConfigFile: VirtualFile?
     get() = resolveFile(angularJson.legacyTest?.karma?.config)
 
@@ -129,6 +159,9 @@ internal class AngularLegacyProjectImpl(private val angularJson: AngularJson,
     get() = angularJson.legacyLint.map { config ->
       AngularLintConfiguration(this, config, null)
     }
+
+  override val type: AngularProjectType?
+    get() = null
 
   override fun resolveFile(filePath: String?): VirtualFile? {
     return filePath?.let {

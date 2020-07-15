@@ -1,8 +1,8 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.javascript.flex.refactoring.extractSuper;
 
 import com.intellij.javascript.flex.refactoring.RenameMoveUtils;
-import com.intellij.lang.javascript.JSBundle;
+import com.intellij.lang.javascript.JavaScriptBundle;
 import com.intellij.lang.javascript.JavaScriptSupportLoader;
 import com.intellij.lang.javascript.dialects.JSDialectSpecificHandlersFactory;
 import com.intellij.lang.javascript.flex.ECMAScriptImportOptimizer;
@@ -50,6 +50,7 @@ import com.intellij.refactoring.util.RefactoringDescriptionLocation;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.usageView.UsageViewDescriptor;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -160,13 +161,7 @@ public class FlexExtractSuperProcessor extends BaseRefactoringProcessor {
       return JSPullUpConflictsUtil.checkConflicts(myMembersToMove, mySourceClass, createFakeClass(), v, JSVisibilityUtil.DEFAULT_OPTIONS);
     }
     else {
-      MultiMap<PsiElement, String> conflicts = new MultiMap<PsiElement, String>() {
-        @NotNull
-        @Override
-        protected Map<PsiElement, Collection<String>> createMap() {
-          return Collections.synchronizedMap(super.createMap());
-        }
-
+      MultiMap<PsiElement, String> conflicts = new MultiMap<PsiElement, String>(Collections.synchronizedMap(CollectionFactory.createSmallMemoryFootprintMap())) {
         @NotNull
         @Override
         protected Collection<String> createCollection() {
@@ -511,8 +506,8 @@ public class FlexExtractSuperProcessor extends BaseRefactoringProcessor {
   @Override
   protected String getCommandName() {
     if (myMode == JSExtractSuperMode.RenameImplementation) {
-      return JSBundle.message("extract.subclass.command.name", StringUtil.getQualifiedName(myTargetPackage, myTargetName),
-                              new JSNamedElementPresenter(mySourceClass).describeWithShortName());
+      return JavaScriptBundle.message("extract.subclass.command.name", StringUtil.getQualifiedName(myTargetPackage, myTargetName),
+                                      new JSNamedElementPresenter(mySourceClass).describeWithShortName());
     }
     else {
       return RefactoringBundle.message(myClassNotInterface ? "extract.superclass.command.name" : "extract.interface.command.name",

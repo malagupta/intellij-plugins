@@ -1,12 +1,11 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.dmarcotte.handlebars.file;
 
 import com.dmarcotte.handlebars.HbLanguage;
 import com.intellij.lang.Language;
 import com.intellij.lang.LanguageParserDefinitions;
 import com.intellij.lang.ParserDefinition;
-import com.intellij.lexer.Lexer;
-import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.LanguageSubstitutors;
 import com.intellij.psi.MultiplePsiFilesPerDocumentFileViewProvider;
@@ -16,11 +15,13 @@ import com.intellij.psi.impl.source.PsiFileImpl;
 import com.intellij.psi.templateLanguages.ConfigurableTemplateLanguageFileViewProvider;
 import com.intellij.psi.templateLanguages.TemplateDataElementType;
 import com.intellij.psi.templateLanguages.TemplateDataLanguageMappings;
+import com.intellij.psi.templateLanguages.TemplateDataModifications;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 import static com.dmarcotte.handlebars.parsing.HbTokenTypes.CONTENT;
@@ -32,7 +33,7 @@ public class HbFileViewProvider extends MultiplePsiFilesPerDocumentFileViewProvi
   private final Language myBaseLanguage;
   private final Language myTemplateLanguage;
 
-  private static final ConcurrentMap<String, TemplateDataElementType> TEMPLATE_DATA_TO_LANG = ContainerUtil.newConcurrentMap();
+  private static final ConcurrentMap<String, TemplateDataElementType> TEMPLATE_DATA_TO_LANG = new ConcurrentHashMap<>();
 
   private static TemplateDataElementType getTemplateDataElementType(Language lang) {
     TemplateDataElementType result = TEMPLATE_DATA_TO_LANG.get(lang.getID());
@@ -40,17 +41,12 @@ public class HbFileViewProvider extends MultiplePsiFilesPerDocumentFileViewProvi
     if (result != null) return result;
     TemplateDataElementType created = new TemplateDataElementType("HB_TEMPLATE_DATA", lang, CONTENT, OUTER_ELEMENT_TYPE) {
       @Override
-      protected void appendCurrentTemplateToken(@NotNull StringBuilder result,
-                                                @NotNull CharSequence buf,
-                                                @NotNull Lexer lexer,
-                                                @NotNull RangeCollector collector) {
-        String nextSequence = lexer.getTokenText();
-        if (nextSequence.endsWith("=")) {
+      protected @NotNull TemplateDataModifications appendCurrentTemplateToken(int tokenEndOffset, @NotNull CharSequence tokenText) {
+        if (StringUtil.endsWithChar(tokenText, '=')) {
           //insert fake ="" for attributes inside html tags
-          nextSequence += "\"\"";
-          collector.addRangeToRemove(new TextRange(lexer.getTokenEnd(), lexer.getTokenEnd() + 2));
+          return TemplateDataModifications.fromRangeToRemove(tokenEndOffset, "\"\"");
         }
-        result.append(nextSequence);
+        return super.appendCurrentTemplateToken(tokenEndOffset, tokenText);
       }
     };
     TemplateDataElementType prevValue = TEMPLATE_DATA_TO_LANG.putIfAbsent(lang.getID(), created);
@@ -74,8 +70,7 @@ public class HbFileViewProvider extends MultiplePsiFilesPerDocumentFileViewProvi
     return false;
   }
 
-  @NotNull
-  private static Language getTemplateDataLanguage(PsiManager manager, VirtualFile file) {
+  private static @NotNull Language getTemplateDataLanguage(PsiManager manager, VirtualFile file) {
     Language dataLang = TemplateDataLanguageMappings.getInstance(manager.getProject()).getMapping(file);
     if (dataLang == null) {
       dataLang = HbLanguage.getDefaultTemplateLang().getLanguage();
@@ -91,27 +86,23 @@ public class HbFileViewProvider extends MultiplePsiFilesPerDocumentFileViewProvi
     return dataLang;
   }
 
-  @NotNull
   @Override
-  public Language getBaseLanguage() {
+  public @NotNull Language getBaseLanguage() {
     return myBaseLanguage;
   }
 
-  @NotNull
   @Override
-  public Language getTemplateDataLanguage() {
+  public @NotNull Language getTemplateDataLanguage() {
     return myTemplateLanguage;
   }
 
-  @NotNull
   @Override
-  public Set<Language> getLanguages() {
+  public @NotNull Set<Language> getLanguages() {
     return ContainerUtil.set(myBaseLanguage, getTemplateDataLanguage());
   }
 
-  @NotNull
   @Override
-  protected MultiplePsiFilesPerDocumentFileViewProvider cloneInner(@NotNull VirtualFile virtualFile) {
+  protected @NotNull MultiplePsiFilesPerDocumentFileViewProvider cloneInner(@NotNull VirtualFile virtualFile) {
     return new HbFileViewProvider(getManager(), virtualFile, false, myBaseLanguage, myTemplateLanguage);
   }
 

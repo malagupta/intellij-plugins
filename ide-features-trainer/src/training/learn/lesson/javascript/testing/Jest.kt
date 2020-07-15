@@ -2,19 +2,15 @@
 package training.learn.lesson.javascript.testing
 
 import com.intellij.execution.RunManager
-import com.intellij.execution.impl.ExecutionManagerImpl
-import com.intellij.lang.javascript.dialects.JSLanguageLevel
-import com.intellij.lang.javascript.settings.JSRootConfiguration
-import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.editor.impl.EditorComponentImpl
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.fileEditor.impl.EditorWindow
 import com.intellij.openapi.keymap.KeymapUtil
-import com.intellij.openapi.util.Condition
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.treeStructure.Tree
 import training.lang.JavaScriptLangSupport
 import training.learn.interfaces.Module
+import training.learn.lesson.javascript.setLanguageLevel
 import training.learn.lesson.javascript.textAtCaretEqualsTo
 import training.learn.lesson.javascript.textOnLine
 import training.learn.lesson.kimpl.KLesson
@@ -27,8 +23,7 @@ class Jest(module: Module) : KLesson("Fundamentals of Testing in WebStorm", modu
   override val lessonContent: LessonContext.() -> Unit
     get() {
       return {
-        JSRootConfiguration.getInstance(project).storeLanguageLevelAndUpdateCaches(JSLanguageLevel.ES6)
-
+        setLanguageLevel()
         prepareSample(parseLessonSample("""
           // Copyright 2004-present Facebook. All Rights Reserved.
 
@@ -39,7 +34,7 @@ class Jest(module: Module) : KLesson("Fundamentals of Testing in WebStorm", modu
           });
         """.trimIndent()))
 
-        task {
+        prepareRuntimeTask {
           val fileEditorManager = FileEditorManagerEx.getInstanceEx(project)
           val window: EditorWindow = fileEditorManager.currentWindow
           val file: VirtualFile = window.selectedFile
@@ -120,12 +115,11 @@ class Jest(module: Module) : KLesson("Fundamentals of Testing in WebStorm", modu
           trigger(it)
         }
 
-        task("Escape") {
+        task {
          text("""
            Congratulations! You’ve made it to the end of this module. Most of what we’ve learned also applies to the other test runners that WebStorm supports (except for code coverage and the watch mode). 
            For more tips and tricks about testing apps with Jest, please take a look at <a href="https://blog.jetbrains.com/webstorm/2018/10/testing-with-jest-in-webstorm/">this</a> blog post. If you use other test runners, you may want to explore our <a href="https://www.jetbrains.com/help/webstorm/unit-testing-javascript.html">web help</a>.
          """.trimIndent())
-          trigger(it)
         }
       }
     }

@@ -9,7 +9,6 @@ import com.intellij.ide.fileTemplates.FileTemplateDescriptor;
 import com.intellij.ide.fileTemplates.FileTemplateManager;
 import com.intellij.lang.Language;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
@@ -18,14 +17,12 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
-import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
-import com.intellij.psi.impl.file.PsiDirectoryFactory;
 import com.intellij.psi.util.CreateClassUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import cucumber.runtime.snippets.CamelCaseConcatenator;
@@ -40,19 +37,19 @@ import org.jetbrains.plugins.cucumber.AbstractStepDefinitionCreator;
 import org.jetbrains.plugins.cucumber.java.CucumberJavaUtil;
 import org.jetbrains.plugins.cucumber.psi.GherkinStep;
 
-import java.io.IOException;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
-import static org.jetbrains.plugins.cucumber.java.CucumberJavaUtil.getCucumberStepAnnotation;
+import static org.jetbrains.plugins.cucumber.java.CucumberJavaUtil.getCucumberStepAnnotations;
 
 public class JavaStepDefinitionCreator extends AbstractStepDefinitionCreator {
   private static final String STEP_DEFINITION_SUFFIX = "MyStepdefs";
   private static final String FILE_TEMPLATE_CUCUMBER_JAVA_STEP_DEFINITION_JAVA = "Cucumber Java Step Definition.java";
   private static final String DEFAULT_STEP_KEYWORD = "Given";
 
-  private final static Logger LOG = Logger.getInstance("#org.jetbrains.plugins.cucumber.java.steps.JavaStepDefinitionCreator");
+  private final static Logger LOG = Logger.getInstance(JavaStepDefinitionCreator.class);
 
   @NotNull
   @Override
@@ -106,7 +103,7 @@ public class JavaStepDefinitionCreator extends AbstractStepDefinitionCreator {
     final TemplateBuilderImpl builder = (TemplateBuilderImpl)TemplateBuilderFactory.getInstance().createTemplateBuilder(addedElement);
 
     final TextRange range = new TextRange(1, regexpElement.getTextLength() - 1);
-    builder.replaceElement(regexpElement, range, regexpElement.getText().substring(range.getStartOffset(), range.getEndOffset()));
+    builder.replaceElement(regexpElement, range, range.substring(regexpElement.getText()));
 
     for (PsiParameter var : blockVars.getParameters()) {
       final PsiElement nameIdentifier = var.getNameIdentifier();
@@ -119,7 +116,7 @@ public class JavaStepDefinitionCreator extends AbstractStepDefinitionCreator {
       final PsiElement firstStatement = body.getStatements()[0];
       final TextRange pendingRange = new TextRange(0, firstStatement.getTextLength() - 1);
       builder.replaceElement(firstStatement, pendingRange,
-                             firstStatement.getText().substring(pendingRange.getStartOffset(), pendingRange.getEndOffset()));
+                             pendingRange.substring(firstStatement.getText()));
     }
 
     PsiDocumentManager documentManager = PsiDocumentManager.getInstance(project);
@@ -173,7 +170,7 @@ public class JavaStepDefinitionCreator extends AbstractStepDefinitionCreator {
 
   @NotNull
   @Override
-  public PsiDirectory getDefaultStepDefinitionFolder(@NotNull final GherkinStep step) {
+  public String getDefaultStepDefinitionFolderPath(@NotNull final GherkinStep step) {
     PsiFile featureFile = step.getContainingFile();
     if (featureFile != null) {
       PsiDirectory psiDirectory = featureFile.getContainingDirectory();
@@ -208,26 +205,13 @@ public class JavaStepDefinitionCreator extends AbstractStepDefinitionCreator {
 
           final String packagePath = packageName.replace('.', '/');
           final String path = sourceRoot != null ? sourceRoot.getPath() : directory.getPath();
-          // ToDo: I shouldn't create directories, only create VirtualFile object.
-          final Ref<PsiDirectory> resultRef = new Ref<>();
-          try {
-            WriteAction.runAndWait(() -> {
-              final VirtualFile packageFile = VfsUtil.createDirectoryIfMissing(path + '/' + packagePath);
-              if (packageFile != null) {
-                resultRef.set(PsiDirectoryFactory.getInstance(project).createDirectory(packageFile));
-              }
-            });
-          }
-          catch (IOException ignored) {
-
-          }
-          return resultRef.get();
+          return FileUtil.join(path, packagePath);
         }
       }
     }
 
     assert featureFile != null;
-    return Objects.requireNonNull(featureFile.getParent());
+    return Objects.requireNonNull(featureFile.getContainingDirectory()).getVirtualFile().getPath();
   }
 
   @NotNull
@@ -304,7 +288,8 @@ public class JavaStepDefinitionCreator extends AbstractStepDefinitionCreator {
 
   private static PsiMethod createStepDefinitionFromSnippet(@NotNull PsiMethod methodFromSnippet, @NotNull GherkinStep step,
                                                            @NotNull JVMElementFactory factory) {
-    PsiAnnotation cucumberStepAnnotation = getCucumberStepAnnotation(methodFromSnippet);
+    List<PsiAnnotation> annotationsFromSnippetMethod = getCucumberStepAnnotations(methodFromSnippet);
+    PsiAnnotation cucumberStepAnnotation = annotationsFromSnippetMethod.get(0);
     String regexp = CucumberJavaUtil.getPatternFromStepDefinition(cucumberStepAnnotation);
     String stepAnnotationName = cucumberStepAnnotation.getQualifiedName();
     if (stepAnnotationName == null) {
